@@ -14,6 +14,8 @@ const profilePath = process.env.SAMEWINDOW_PROFILE_PATH
   || "/var/lib/samewindow/chrome-profile";
 const controlUrl = process.env.SAMEWINDOW_CONTROL_URL
   || "http://127.0.0.1:6081";
+const sleepingFoxPath = process.env.SAMEWINDOW_SLEEPING_FOX_PATH
+  || new URL("../web/sleeping-fox.svg", import.meta.url);
 
 const startOrder = [
   "samewindow-xvfb.service",
@@ -28,6 +30,7 @@ const stopOrder = [...startOrder].reverse();
 let activeOperation = null;
 let lastTransition = null;
 const dashboardHtml = await readFile(dashboardPath, "utf8");
+const sleepingFoxSvg = await readFile(sleepingFoxPath);
 
 function sendJson(response, status, value) {
   response.setHeader("Cache-Control", "no-store");
@@ -51,6 +54,14 @@ function sendDashboard(response) {
   response.setHeader("X-Frame-Options", "DENY");
   response.writeHead(200);
   response.end(dashboardHtml);
+}
+
+function sendSleepingFox(response) {
+  response.setHeader("Cache-Control", "no-store");
+  response.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.writeHead(200);
+  response.end(sleepingFoxSvg);
 }
 
 function readJsonBody(request, maxBytes = 16 * 1024) {
@@ -197,6 +208,10 @@ const server = http.createServer(async (request, response) => {
   try {
     if (request.method === "GET" && requestUrl.pathname === "/") {
       sendDashboard(response);
+      return;
+    }
+    if (request.method === "GET" && requestUrl.pathname === "/sleeping-fox.svg") {
+      sendSleepingFox(response);
       return;
     }
     if (request.method === "GET" && requestUrl.pathname === "/health") {

@@ -84,5 +84,8 @@ test("lifecycle dashboard and health endpoint start independently", async () => 
     assert.deepEqual(await health.json(), { ok: true, service: "samewindow-lifecycle" });
     const dashboard = await fetch(`http://127.0.0.1:${port}/`);
     assert.match(await dashboard.text(), /SameWindow shared browser/);
+    const fox = await fetch(`http://127.0.0.1:${port}/sleeping-fox.svg`);
+    assert.equal(fox.headers.get("content-type"), "image/svg+xml; charset=utf-8");
+    assert.match(await fox.text(), /Sleeping fox/);
   });
 });

@@ -6,65 +6,291 @@
     <title>SameWindow</title>
     <style>
       :root {
-        color-scheme: dark;
+        color-scheme: light;
+        --paper: #f2eee4;
+        --paper-raised: #fbf8f1;
+        --ink: #141312;
+        --ink-soft: #4c4944;
+        --ink-faint: #8b8579;
+        --grid: rgb(20 19 18 / 5%);
+        --grid-strong: rgb(20 19 18 / 8.5%);
+        --error: #9a3b2c;
         font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-        background: #080808;
-        color: #f4f4f1;
+        background: var(--paper);
+        color: var(--ink);
       }
+
       * { box-sizing: border-box; }
-      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-      body { display: grid; grid-template-rows: 54px minmax(0, 1fr); background: #080808; }
-      header {
+
+      html,
+      body {
+        width: 100%;
+        min-width: 320px;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        background-color: var(--paper);
+        background-image:
+          linear-gradient(var(--grid) 1px, transparent 1px),
+          linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+          linear-gradient(var(--grid-strong) 1px, transparent 1px),
+          linear-gradient(90deg, var(--grid-strong) 1px, transparent 1px),
+          radial-gradient(130% 95% at 50% 6%, rgb(255 255 255 / 60%), transparent 62%);
+        background-position: center;
+        background-size: 26px 26px, 26px 26px, 130px 130px, 130px 130px, 100% 100%;
+      }
+
+      #viewer {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: #fff;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 220ms ease;
+      }
+
+      body[data-state="running"] #viewer {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      #dock {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 20;
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 0 16px;
-        border-bottom: 1px solid #343434;
-        background: #0b0b0b;
+        min-height: 44px;
+        padding: 7px 8px 7px 14px;
+        border: 1.5px solid var(--ink);
+        border-radius: 999px;
+        background: var(--paper-raised);
+        box-shadow: 0 10px 26px rgb(0 0 0 / 14%), inset 0 1px 0 rgb(255 255 255 / 60%);
       }
-      h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: .02em; }
-      #status { margin-right: auto; color: #92928e; font-size: 12px; }
+
+      #status-dot {
+        width: 9px;
+        height: 9px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--ink);
+      }
+
+      body[data-state="running"] #status-dot {
+        background: var(--ink);
+        animation: samewindow-pulse 2.4s ease-out infinite;
+      }
+
+      @keyframes samewindow-pulse {
+        0% { box-shadow: 0 0 0 0 rgb(20 19 18 / 35%); }
+        70% { box-shadow: 0 0 0 9px rgb(20 19 18 / 0%); }
+        100% { box-shadow: 0 0 0 0 rgb(20 19 18 / 0%); }
+      }
+
+      #status {
+        min-width: 128px;
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 650;
+        letter-spacing: .01em;
+      }
+
       button {
-        min-width: 76px;
-        height: 32px;
-        border: 1px solid #666;
-        border-radius: 0;
-        background: #101010;
-        color: #f4f4f1;
+        min-height: 32px;
+        border: 1.5px solid var(--ink);
+        border-radius: 999px;
+        padding: 0 15px;
+        background: var(--ink);
+        color: var(--paper-raised);
         font: inherit;
+        font-size: 13px;
+        font-weight: 700;
         cursor: pointer;
+        transition: transform 140ms ease, background 140ms ease, opacity 140ms ease;
       }
-      button:hover, button:focus-visible { border-color: #fff; outline: 0; }
-      button:disabled { opacity: .35; cursor: wait; }
-      #viewer { width: 100%; height: 100%; border: 0; background: #050505; }
-      #empty {
-        display: grid;
-        place-items: center;
+
+      button:hover:not(:disabled) {
+        transform: translateY(-1px);
+        background: #2a2825;
+      }
+
+      button:active:not(:disabled) { transform: translateY(0); }
+      button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+      button:disabled { cursor: wait; opacity: .5; }
+
+      #stop {
+        display: none;
+        background: transparent;
+        color: var(--ink);
+      }
+
+      body[data-state="running"] #stop { display: inline-flex; align-items: center; }
+
+      #sleep-card {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        z-index: 5;
+        width: min(460px, calc(100vw - 36px));
+        transform: translate(-50%, -50%);
+        padding: 18px 38px;
+        border: 2px solid var(--ink);
+        border-radius: 22px;
+        background: var(--paper-raised);
+        box-shadow: 6px 6px 0 rgb(20 19 18 / 5%), 0 18px 50px rgb(0 0 0 / 10%);
+        text-align: center;
+        transition: opacity 180ms ease, transform 180ms ease;
+      }
+
+      #sleep-card::before {
+        content: "SAMEWINDOW · SHARED BROWSER";
+        display: block;
+        margin-bottom: 14px;
+        color: var(--ink-faint);
+        font: 600 10.5px/1 ui-monospace, "SFMono-Regular", Consolas, monospace;
+        letter-spacing: .22em;
+      }
+
+      body[data-state="running"] #sleep-card {
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(-50%, calc(-50% + 8px));
+      }
+
+      .fox-wrap {
+        position: relative;
+        width: 64px;
+        height: 64px;
+        margin: 0 auto 16px;
+      }
+
+      .fox-mark {
+        display: block;
         width: 100%;
         height: 100%;
-        color: #777;
-        font-size: 13px;
+        object-fit: contain;
+      }
+
+      .sleep-zzz {
+        position: absolute;
+        top: -7px;
+        right: -18px;
+        display: flex;
+        align-items: flex-end;
+        gap: 1px;
+        color: var(--ink-soft);
+        font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+        line-height: 1;
+        animation: samewindow-dream 3.8s ease-in-out infinite;
+      }
+
+      .sleep-zzz span:nth-child(1) { font-size: 8px; opacity: .42; }
+      .sleep-zzz span:nth-child(2) { font-size: 10px; opacity: .58; }
+      .sleep-zzz span:nth-child(3) { font-size: 13px; font-weight: 700; opacity: .78; }
+
+      @keyframes samewindow-dream {
+        0% { transform: translate3d(-10px, 10px, 0) rotate(-12deg); opacity: 0; }
+        16% { opacity: .82; }
+        68% { opacity: .7; }
+        100% { transform: translate3d(0, 2px, 0) rotate(-8deg); opacity: 0; }
+      }
+
+      h1 {
+        margin: 0;
+        color: var(--ink);
+        font-size: clamp(26px, 4vw, 30px);
+        font-weight: 800;
+        letter-spacing: -.025em;
+        line-height: 1.15;
+      }
+
+      p {
+        max-width: 34ch;
+        margin: 10px auto 18px;
+        color: var(--ink-soft);
+        font-size: 14px;
+        line-height: 1.65;
+      }
+
+      #start {
+        min-height: 44px;
+        padding: 0 22px;
+      }
+
+      #error {
+        min-height: 18px;
+        margin-top: 10px;
+        color: var(--error);
+        font: 500 12px/1.5 ui-monospace, "SFMono-Regular", Consolas, monospace;
+      }
+
+      @media (max-width: 520px) {
+        #dock {
+          top: 10px;
+          left: 10px;
+          max-width: calc(100vw - 20px);
+        }
+
+        #status {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        #sleep-card { padding-inline: 22px; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #viewer,
+        #sleep-card,
+        button {
+          transition: none;
+        }
+
+        #status-dot,
+        .sleep-zzz {
+          animation: none;
+        }
       }
     </style>
   </head>
-  <body>
-    <header>
-      <h1>SameWindow</h1>
+  <body data-state="loading">
+    <div id="dock" aria-live="polite">
+      <span id="status-dot" aria-hidden="true"></span>
       <span id="status">Checking the shared browser…</span>
-      <button id="start" type="button">Start</button>
       <button id="stop" type="button">Stop</button>
-    </header>
-    <main>
-      <div id="empty">The browser is asleep.</div>
-      <iframe id="viewer" title="SameWindow shared browser" src="about:blank" hidden></iframe>
+    </div>
+
+    <iframe id="viewer" title="SameWindow shared browser" src="about:blank" hidden></iframe>
+
+    <main id="sleep-card">
+      <div class="fox-wrap" aria-hidden="true">
+        <img class="fox-mark" src="/sleeping-fox.svg" alt="">
+        <span class="sleep-zzz"><span>z</span><span>z</span><span>Z</span></span>
+      </div>
+      <h1>The shared browser is asleep</h1>
+      <p>Your Chrome profile stays safely on disk. Wake the room when you are ready to browse together.</p>
+      <button id="start" type="button">Start shared browser</button>
+      <div id="error" role="status"></div>
     </main>
+
     <script>
       (() => {
         const statusLabel = document.querySelector("#status");
         const startButton = document.querySelector("#start");
         const stopButton = document.querySelector("#stop");
         const viewer = document.querySelector("#viewer");
-        const empty = document.querySelector("#empty");
+        const errorLabel = document.querySelector("#error");
         let busy = false;
         let viewerLoaded = false;
 
@@ -83,17 +309,18 @@
 
         function render(state) {
           const running = state.phase === "running" && state.ready;
+          document.body.dataset.state = running ? "running" : state.phase || "stopped";
           statusLabel.textContent = busy
             ? "Working…"
             : running
               ? "Shared browser is ready"
               : state.phase === "starting"
                 ? "Starting…"
-                : "Browser is asleep";
+                : "Shared browser is asleep";
           startButton.disabled = busy || running;
           stopButton.disabled = busy || state.phase === "stopped";
           viewer.hidden = !running;
-          empty.hidden = running;
+          errorLabel.textContent = "";
           if (running && !viewerLoaded) {
             viewer.src = `${state.viewerUrl}?t=${Date.now()}`;
             viewerLoaded = true;
@@ -108,7 +335,9 @@
           try {
             render(await request("/api/status"));
           } catch (error) {
-            statusLabel.textContent = error.message;
+            document.body.dataset.state = "error";
+            statusLabel.textContent = "Status unavailable";
+            errorLabel.textContent = error.message;
           }
         }
 
@@ -117,10 +346,11 @@
           busy = true;
           startButton.disabled = true;
           stopButton.disabled = true;
+          errorLabel.textContent = "";
           try {
             render(await request(path, { method: "POST", body: "{}" }));
           } catch (error) {
-            statusLabel.textContent = error.message;
+            errorLabel.textContent = error.message;
           } finally {
             busy = false;
             await refresh();
