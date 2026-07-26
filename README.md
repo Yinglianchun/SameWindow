@@ -192,4 +192,19 @@ desktop dependencies above.
 
 ## License
 
-MIT
+SameWindow 0.2.0 and later are available under the
+[SameWindow Noncommercial Share-Alike License 1.0](LICENSE).
+
+You may use and privately modify SameWindow for noncommercial purposes. You
+may also publish a version with material functional changes when the complete
+corresponding source is freely available, the changes and original project are
+clearly identified, and the entire modified version remains under the same
+license.
+
+Commercial use is not permitted. Mirroring, re-uploading, or redistributing an
+unmodified or substantially unmodified copy is also not permitted; share the
+[Official Repository](https://github.com/Yinglianchun/SameWindow) instead.
+
+This is a source-available license, not an OSI-approved open-source license.
+Versions released before 0.2.0 remain under the license that accompanied those
+versions. Third-party dependencies remain under their respective licenses.

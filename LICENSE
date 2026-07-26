@@ -1,21 +1,138 @@
-MIT License
+SameWindow Noncommercial Share-Alike License 1.0
 
 Copyright (c) 2026 Yinglianchun
+All rights reserved except as expressly granted below.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This is a source-available software license. It is not an Open Source
+Initiative approved open-source license.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+By exercising any permission granted by this License, You accept and agree to
+be bound by its terms.
+
+1. Definitions
+
+"Software" means SameWindow source code, object code, documentation, and
+original assets made available by the Licensor under this License, beginning
+with version 0.2.0.
+
+"Official Repository" means:
+https://github.com/Yinglianchun/SameWindow
+
+"You" means the individual or legal entity exercising permissions under this
+License.
+
+"Commercial Purpose" means a use primarily intended for, directed toward, or
+undertaken for commercial advantage, monetary compensation, or the operations
+of a for-profit business. Commercial Purpose includes, without limitation:
+
+  a. selling, renting, licensing, or charging for the Software;
+  b. offering the Software or its functionality as a paid, subscription,
+     advertising-supported, or revenue-generating service;
+  c. bundling or integrating the Software into a paid product or service;
+  d. using the Software to provide paid consulting, hosting, automation, or
+     managed services; and
+  e. using the Software for the internal operations of a for-profit business.
+
+"Redistribute" means to provide any third party with a copy of the Software or
+a Modified Version, whether by source archive, object code, binary, mirror,
+repository, download, physical media, or any other method.
+
+"Substantially Unmodified Copy" means the Software with no material functional
+changes. Renaming, rebranding, changing artwork or text, changing
+configuration, formatting code, or making only trivial fixes does not by
+itself create a Modified Version.
+
+"Modified Version" means a derivative work based on the Software that contains
+material functional changes.
+
+"Corresponding Source" means all source code and project-controlled scripts
+needed to build, install, run, and modify a distributed Modified Version,
+excluding generally available tools and third-party dependencies.
+
+2. License Grant
+
+Subject to this License, the Licensor grants You a worldwide, royalty-free,
+non-exclusive, non-sublicensable license to:
+
+  a. use and reproduce the Software for Noncommercial Purposes;
+  b. make private modifications for Noncommercial Purposes; and
+  c. Redistribute a Modified Version for Noncommercial Purposes, but only in
+     compliance with Section 3.
+
+"Noncommercial Purposes" means purposes that are not Commercial Purposes.
+
+3. Conditions for Redistributing Modified Versions
+
+If You Redistribute a Modified Version, You must:
+
+  a. license the Modified Version as a whole under this exact License, without
+     adding terms or technological measures that restrict the permissions
+     granted by this License;
+  b. make the complete Corresponding Source available at no charge through a
+     reasonably durable and public location;
+  c. include an unmodified copy of this License;
+  d. preserve all copyright, attribution, and license notices;
+  e. prominently state that the version has been modified, describe the
+     material changes, identify the modification date, and link to the
+     Official Repository; and
+  f. avoid stating or implying that the Licensor endorses the Modified Version.
+
+By Redistributing a Modified Version, each contributor grants every recipient
+the same permissions under this License for that contributor's modifications.
+
+Separable third-party components remain governed by their own licenses.
+
+4. No Redistribution of Unmodified Copies
+
+You may not Redistribute the Software or a Substantially Unmodified Copy.
+Instead, direct others to the Official Repository.
+
+A public repository fork is permitted solely to develop a Modified Version or
+submit contributions to the Official Repository. A fork may not be operated as
+a mirror, presented as an independent release, or used to Redistribute an
+unmodified or Substantially Unmodified Copy.
+
+5. No Commercial Use
+
+You may not use, modify, or Redistribute the Software or a Modified Version for
+any Commercial Purpose. Commercial use requires a separate written license
+from the Licensor.
+
+6. Patents and Trademarks
+
+Each contributor grants You a patent license for patent claims that the
+contributor can license and that are necessarily infringed by that
+contributor's contribution when used as permitted by this License.
+
+This License does not grant permission to use the Licensor's names, logos, or
+trademarks except as necessary to provide attribution and identify the
+Official Repository.
+
+7. Termination and Cure
+
+Your permissions under this License terminate automatically if You violate its
+terms. The Licensor may reinstate them if, within 30 days after receiving
+written notice, You cease the violation and take reasonable steps to correct
+its effects. A repeated violation terminates permissions immediately without a
+cure period.
+
+8. No Warranty
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE LICENSOR AND CONTRIBUTORS WILL NOT
+BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM OR RELATED TO
+THE SOFTWARE OR THIS LICENSE, WHETHER IN CONTRACT, TORT, OR OTHERWISE.
+
+9. No Implied Rights
+
+Rights not expressly granted by this License are reserved. If any provision is
+held unenforceable, the remaining provisions remain in effect.
+
+10. Earlier Versions
+
+Versions released before 0.2.0 remain governed by the license terms under which
+those versions were originally made available. This License does not revoke
+permissions already granted for those earlier versions.
