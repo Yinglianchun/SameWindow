@@ -78,9 +78,21 @@ install -o samewindow -g samewindow -m 0644 \
   "$INSTALL_DIR/web/novnc/user-cursor.js" \
   "$INSTALL_DIR/web/novnc/watch-mode.js" \
   "$STATE_DIR/novnc-web/"
-install -o samewindow -g samewindow -m 0644 \
-  "$INSTALL_DIR/web/novnc/cursor-state.json" \
-  "$STATE_DIR/novnc-web/cursor-state.json"
+if [[ ! -f "$STATE_DIR/novnc-web/cursor-state.json" ]]; then
+  cat > "$STATE_DIR/novnc-web/cursor-state.json" <<'JSON'
+{
+  "available": false,
+  "inside": false,
+  "x": null,
+  "y": null,
+  "buttons": 0,
+  "pointerType": "mouse",
+  "receivedAt": null
+}
+JSON
+  chown samewindow:samewindow "$STATE_DIR/novnc-web/cursor-state.json"
+  chmod 0644 "$STATE_DIR/novnc-web/cursor-state.json"
+fi
 node "$INSTALL_DIR/web/novnc/patch-novnc.mjs" "$STATE_DIR/novnc-web/vnc.html"
 chown -R samewindow:samewindow "$STATE_DIR"
 
