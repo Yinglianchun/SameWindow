@@ -7,7 +7,8 @@ import { chromium } from "playwright-core";
 
 const host = process.env.SAMEWINDOW_CONTROL_HOST || "127.0.0.1";
 const port = Number(process.env.SAMEWINDOW_CONTROL_PORT || 6081);
-const cdpUrl = process.env.SAMEWINDOW_CDP_URL || "http://127.0.0.1:9222";
+const cdpPort = process.env.SAMEWINDOW_CDP_PORT || "9222";
+const cdpUrl = process.env.SAMEWINDOW_CDP_URL || `http://127.0.0.1:${cdpPort}`;
 const cursorStateFile = process.env.SAMEWINDOW_CURSOR_STATE_FILE
   || "/var/lib/samewindow/novnc-web/cursor-state.json";
 const allowSensitiveAutomation = process.env.SAMEWINDOW_ALLOW_SENSITIVE_AUTOMATION === "1";
