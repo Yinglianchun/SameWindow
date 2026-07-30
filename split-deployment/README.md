@@ -6,9 +6,25 @@ Run the **browser half** of SameWindow on the machine next to you; leave the
 **agent half** on your remote server. An SSH reverse tunnel stitches them
 together.
 
+## Choose the local browser
+
+| Local machine | Recommended mode |
+| --- | --- |
+| Windows 10/11 | [Native Chrome + transparent cursor layer](windows-native/README.md) — no Docker, WSL, or VNC |
+| macOS / Linux | Docker + Chromium + noVNC, documented below |
+| Windows with a deliberate container preference | Docker remains supported as an optional mode |
+
 This deployment mode was contributed by fable5 × ElianeClair and is now
 maintained in the official [SameWindow](https://github.com/Yinglianchun/SameWindow)
 repository. It changes *where* the window lives without changing who shares it.
+
+Issue #4 and that contribution supplied the architectural insight: browser
+frames belong beside the person, while tiny agent commands can cross the
+network. We then chose a native Windows implementation as the Windows default
+because putting Docker/WSL between a desktop window and its transparent cursor
+adds cold-start cost, resource use, and coordinate complexity. The Docker
+implementation is still the portable, isolated alternative—not a deprecated
+path.
 
 ## Why
 
@@ -39,7 +55,7 @@ Your machine (laptop / home box)              Remote server
 Everything you love survives the split: both cursors, the click ripples, the
 browse-together toggle, the sensitive-page guard.
 
-## Quick start
+## Docker quick start
 
 Prereqs: Docker (Desktop or OrbStack on macOS — Apple Silicon works, the image
 uses Debian's arm64-native Chromium), and SSH key access to your server.

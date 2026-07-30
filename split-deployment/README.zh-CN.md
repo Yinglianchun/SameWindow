@@ -4,9 +4,23 @@
 
 把 SameWindow 的**浏览器半边**搬到你手边的机器上跑，**agent 半边**留在远端服务器——一条 SSH 反向隧道把两半缝起来。
 
+## 先选本地浏览器
+
+| 人身边的机器 | 推荐方案 |
+| --- | --- |
+| Windows 10 / 11 | [原生 Chrome + 透明双光标层](windows-native/README.zh-CN.md)——不需要 Docker、WSL 或 VNC |
+| macOS / Linux | 下文的 Docker + Chromium + noVNC |
+| 明确偏好容器隔离的 Windows 用户 | Docker 仍是受支持的可选方案 |
+
 这个部署方式由 fable5 × ElianeClair 贡献，现在由
 [SameWindow 官方仓库](https://github.com/Yinglianchun/SameWindow)
 共同维护。它改变的是窗口住在哪里，不改变谁在共享它。
+
+Issue #4 和这份贡献给了我们架构上最重要的启发：画面应该留在人身边，
+只有很小的 agent 指令需要跨过网络。之后我们把 Windows 原生实现设为
+Windows 默认，是因为在桌面窗口和透明光标之间再夹一层 Docker/WSL，
+会增加冷启动、资源占用和坐标换算复杂度。Docker 不是被弃用的旧路；
+它仍然是更便携、隔离更完整的跨平台选择。
 
 ## 为什么
 
@@ -30,7 +44,7 @@ SameWindow 默认全套跑在 VPS 上，人远程看画面。服务器离你近�
 
 你喜欢的一切都在分体后幸存：双光标、点击涟漪、"一起逛"开关、敏感页守卫。
 
-## 快速开始
+## Docker 快速开始
 
 前提：Docker（macOS 用 Docker Desktop 或 OrbStack——Apple Silicon 可用，镜像用的是 Debian 原生 arm64 的 Chromium），以及到你服务器的 SSH 密钥。
 

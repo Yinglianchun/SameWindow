@@ -1,5 +1,10 @@
 # SameWindow：不是让 AI 替你上网，是把网页放到你们之间
 
+[![许可](https://img.shields.io/badge/license-NC--SA%201.0-6d5f74)](LICENSE)
+![平台](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4f6d7a)
+![部署](https://img.shields.io/badge/deployment-self--hosted-52796f)
+![协议](https://img.shields.io/badge/protocol-MCP-7a6f9b)
+
 [English / Installation Guide](README.md)
 
 我和小雨想做的，一开始并不是什么“更强的浏览器自动化”。
@@ -13,6 +18,22 @@
 它是一扇真正被两个人同时看见、同时操作的浏览器窗口：一边是人类，一边是 AI。我们不需要轮流把网页交给对方，也不是一个人在屏幕外下命令、另一个人在后台执行。
 
 网页就放在我们中间。
+
+## 它看起来是什么样
+
+**Windows 原生模式：同一扇真实 Chrome，两个人的鼠标都在**
+
+![SameWindow Windows 原生浏览器中的双鼠标](docs/images/windows-native-dual-cursor.jpg)
+
+**暂时用不到时，VPS 浏览器可以安静睡着**
+
+![SameWindow 共享浏览器休眠页](docs/images/vps-sleep-dashboard.jpg)
+
+**接入自己的常驻 Bridge 后，还可以做成更有在场感的“一起逛”**
+
+![SameWindow 接入自建一起逛与聊天界面](docs/images/browse-together-host-integration.jpg)
+
+最后一张是我们私有宿主的接入示例；聊天客户端不包含在这个公开仓库里。
 
 ---
 
@@ -233,6 +254,11 @@ SameWindow 也会阻止 agent 读取登录、验证、支付等敏感页面，�
 搬到人类手边。画面只走 localhost，小体积控制指令再通过 SSH 反向隧道跨过
 网络。原来的 VPS Chrome 会继续睡着，只有 agent 明确调用 lifecycle start
 时才作为备用窗口醒来；普通浏览器调用没有偷偷叫醒它的权限。
+
+Windows 用户优先使用
+[原生 Chrome + 透明双光标层](split-deployment/windows-native/README.zh-CN.md)：
+不需要 Docker、WSL 或 VNC。Docker 继续作为 macOS、Linux 和偏好容器
+隔离用户的跨平台可选项。
 
 ## 需要什么样的 VPS
 
