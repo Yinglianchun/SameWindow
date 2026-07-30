@@ -641,12 +641,15 @@ function getTabRef(page) {
   return ref;
 }
 
-async function findPage(tabRef = "", bringToFront = false) {
+async function findPage(tabRef = "", bringToFront = false, strict = false) {
   const pages = await getPages();
   for (const page of pages) getTabRef(page);
 
   let page = tabRef ? refToPage.get(tabRef) : selectedPage;
   if (!page || page.isClosed() || !pages.includes(page)) {
+    if (strict && tabRef) {
+      throw new Error(`browser tab ref ${tabRef} is stale; take a fresh snapshot`);
+    }
     page = pages[0] ?? null;
   }
   if (!page) throw new Error("no shared Chrome page is open");
@@ -1032,7 +1035,7 @@ async function cursorCoordinatesForTarget(page, target) {
 
 async function clickTarget(value) {
   const startedAt = performance.now();
-  const page = await findPage(cleanString(value.tabRef, 50), false);
+  const page = await findPage(cleanString(value.tabRef, 50), false, true);
   return withPageOperationLock(page, async () => {
     const { target, ref } = await getTarget(value, page);
     await page.bringToFront();
@@ -1076,7 +1079,7 @@ async function pressKey(value) {
 async function typeIntoTarget(value) {
   const text = String(value.text ?? "");
   if (!text || text.length > 10000) throw new Error("text must contain 1-10000 characters");
-  const page = await findPage(cleanString(value.tabRef, 50), false);
+  const page = await findPage(cleanString(value.tabRef, 50), false, true);
   return withPageOperationLock(page, async () => {
     const { target, ref } = await getTarget(value, page);
     await page.bringToFront();

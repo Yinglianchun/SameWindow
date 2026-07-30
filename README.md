@@ -63,7 +63,9 @@ evaluation, arbitrary CSS selectors, or screenshots through the public tools.
 Actions use snapshot-scoped temporary references such as `s42:e1`. A new
 snapshot invalidates the previous element refs for that tab, while the latest
 refs for other tabs remain valid. The snapshot also returns `snapshotId` for
-diagnostics, but actions only need the returned ref. Login, password,
+diagnostics, but actions only need the returned ref. An explicitly supplied
+stale tab ref is rejected instead of silently falling back to another tab.
+Login, password,
 one-time-code, identity, checkout, and payment pages are blocked from snapshots
 and actions by default.
 

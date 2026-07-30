@@ -160,6 +160,20 @@ test("snapshot-scoped refs stay bound across refreshes, concurrency, and tabs", 
     const latestB = (await post(baseUrl, "/browser/snapshot", { tabRef: tabB })).body.snapshot;
     const latestBRef = element(latestB, "Message").ref;
 
+    const staleTabClick = await post(baseUrl, "/browser/click", {
+      tabRef: "tab-stale",
+      ref: latestARef,
+    });
+    assert.equal(staleTabClick.status, 400);
+    assert.match(staleTabClick.body.error, /browser tab ref tab-stale is stale/);
+    const staleTabType = await post(baseUrl, "/browser/type", {
+      tabRef: "tab-stale",
+      ref: latestBRef,
+      text: "must not be typed",
+    });
+    assert.equal(staleTabType.status, 400);
+    assert.match(staleTabType.body.error, /browser tab ref tab-stale is stale/);
+
     const clicked = await post(baseUrl, "/browser/click", { tabRef: tabA, ref: latestARef });
     assert.equal(clicked.status, 200);
     assert.equal(clicked.body.result.ref, latestARef);
