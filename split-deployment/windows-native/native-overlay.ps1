@@ -320,23 +320,27 @@ $cursorInner.StrokeThickness = 2.45
 $cursorInner.StrokeLineJoin = [Windows.Media.PenLineJoin]::Round
 
 $cursorVisual = New-Object Windows.Controls.Grid
-$cursorVisual.Width = 32
-$cursorVisual.Height = 36
+$cursorVisual.Width = 26
+$cursorVisual.Height = 30
 $cursorVisual.Children.Add($cursorOutline) | Out-Null
 $cursorVisual.Children.Add($cursorInner) | Out-Null
 $cursorVisual.Visibility = [Windows.Visibility]::Collapsed
 $cursorVisual.Effect = New-Object Windows.Media.Effects.DropShadowEffect -Property @{
-    BlurRadius = 12
+    BlurRadius = 9
     Color = [Windows.Media.ColorConverter]::ConvertFromString("#339CFF")
-    Opacity = 0.9
+    Opacity = 0.86
     ShadowDepth = 0
 }
 
+$cursorScale = New-Object Windows.Media.ScaleTransform
+$cursorScale.ScaleX = 0.82
+$cursorScale.ScaleY = 0.82
 $cursorRotate = New-Object Windows.Media.RotateTransform
 $cursorRotate.CenterX = 5
 $cursorRotate.CenterY = 5
 $cursorTranslate = New-Object Windows.Media.TranslateTransform
 $cursorTransforms = New-Object Windows.Media.TransformGroup
+$cursorTransforms.Children.Add($cursorScale)
 $cursorTransforms.Children.Add($cursorRotate)
 $cursorTransforms.Children.Add($cursorTranslate)
 $cursorVisual.RenderTransform = $cursorTransforms
