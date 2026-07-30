@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -255,7 +256,10 @@ def _prefix_refs(value: Any, backend: str, split_mode: bool) -> Any:
         if (
             key.lower().endswith("ref")
             and isinstance(item, str)
-            and (item.startswith("tab-") or (item.startswith("e") and item[1:].isdigit()))
+            and (
+                item.startswith("tab-")
+                or re.fullmatch(r"(?:s\d+:)?e\d+", item)
+            )
         ):
             result[key] = f"{backend}:{item}"
         else:

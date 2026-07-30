@@ -4,6 +4,12 @@ import { writeFile } from "node:fs/promises";
 
 import { chromium } from "playwright-core";
 
+import {
+  ElementRefRegistry,
+  resolvePageReference,
+  snapshotElementRef,
+} from "./browser-refs.mjs";
+
 
 const host = process.env.SAMEWINDOW_CONTROL_HOST || "127.0.0.1";
 const port = Number(process.env.SAMEWINDOW_CONTROL_PORT || 6081);
@@ -82,12 +88,11 @@ let browserConnection = null;
 let selectedPage = null;
 let selectedPageObservedAt = 0;
 let nextTabSequence = 1;
-let nextElementSequence = 1;
 let nextSnapshotSequence = 1;
 let cursorSequence = Date.now();
 let pageToRef = new WeakMap();
 let refToPage = new Map();
-let elementRefs = new Map();
+let elementRefs = new ElementRefRegistry();
 
 function sendJson(response, status, value, origin = null) {
   if (origin && allowedOrigins.has(origin)) {
@@ -614,7 +619,7 @@ function resetBrowserState() {
   selectedPageObservedAt = 0;
   pageToRef = new WeakMap();
   refToPage = new Map();
-  elementRefs = new Map();
+  elementRefs = new ElementRefRegistry();
 }
 
 async function getBrowser() {
@@ -640,14 +645,17 @@ function getTabRef(page) {
   return ref;
 }
 
-async function findPage(tabRef = "", bringToFront = false) {
+async function findPage(tabRef = "", bringToFront = false, strict = false) {
   const pages = await getPages();
   for (const page of pages) getTabRef(page);
 
-  let page = tabRef ? refToPage.get(tabRef) : selectedPage;
-  if (!page || page.isClosed() || !pages.includes(page)) {
-    page = pages[0] ?? null;
-  }
+  const page = resolvePageReference(
+    tabRef,
+    refToPage,
+    pages,
+    selectedPage,
+    strict,
+  );
   if (!page) throw new Error("no shared Chrome page is open");
   selectedPage = page;
   if (bringToFront) await page.bringToFront();
@@ -800,7 +808,7 @@ async function closePage(value) {
 }
 
 async function clearElementRefs() {
-  const pages = [...new Set([...elementRefs.values()].map((entry) => entry.page))];
+  const pages = elementRefs.pages();
   elementRefs.clear();
   await Promise.all(pages.map((page) => page.evaluate(() => {
     document.querySelectorAll("[data-samewindow-snapshot-ref]").forEach((element) => {
@@ -817,13 +825,16 @@ async function snapshotPage(value) {
     ? await findPage(tabRef, false)
     : await findObservedPage();
   await assertPageSafe(page, "snapshot");
-  elementRefs.clear();
-  nextElementSequence = 1;
   const snapshotId = `s${nextSnapshotSequence++}`;
+  elementRefs.begin(snapshotId);
+  const snapshotRefs = Array.from(
+    { length: limit },
+    (_, index) => snapshotElementRef(snapshotId, index),
+  );
   const snapshot = await page.evaluate(({
     selector,
     limit: maxElements,
-    snapshotId: activeSnapshotId,
+    refs,
     includePointerExtras,
   }) => {
     document.querySelectorAll("[data-samewindow-snapshot-ref]").forEach((element) => {
@@ -904,8 +915,8 @@ async function snapshotPage(value) {
     }
 
     const elements = candidates.slice(0, maxElements).map((candidate, index) => {
-      const ref = `e${index + 1}`;
-      const marker = `${activeSnapshotId}:${ref}`;
+      const ref = refs[index];
+      const marker = ref;
       candidate.element.setAttribute("data-samewindow-snapshot-ref", marker);
       const { element: _element, ...metadata } = candidate;
       return { ref, marker, ...metadata };
@@ -922,20 +933,22 @@ async function snapshotPage(value) {
   }, {
     selector: interactiveSelector,
     limit,
-    snapshotId,
+    refs: snapshotRefs,
     includePointerExtras: value.includePointerExtras === true,
   });
 
+  const entries = [];
   const elements = snapshot.elements.map(({ marker, ...element }) => {
-    elementRefs.set(element.ref, {
+    entries.push({
+      ref: element.ref,
       page,
       selector: `[data-samewindow-snapshot-ref="${marker}"]`,
-      snapshotId,
     });
-    nextElementSequence += 1;
     return element;
   });
+  elementRefs.commit(snapshotId, entries);
   return {
+    snapshotId,
     tabRef: getTabRef(page),
     title: snapshot.title,
     url: snapshot.url,
@@ -948,13 +961,10 @@ async function snapshotPage(value) {
 }
 
 async function getTarget(value) {
-  const page = await findPage(cleanString(value.tabRef, 50), false);
+  const page = await findPage(cleanString(value.tabRef, 50), false, true);
   const ref = cleanString(value.ref, 30);
   if (!ref) throw new Error("ref from a fresh snapshot is required");
-  const entry = elementRefs.get(ref);
-  if (!entry || entry.page !== page) {
-    throw new Error(`element ref ${ref} is stale; take a fresh snapshot`);
-  }
+  const entry = elementRefs.resolve(ref, page);
   await assertPageSafe(page, "browser action");
   return { page, target: page.locator(entry.selector), ref };
 }

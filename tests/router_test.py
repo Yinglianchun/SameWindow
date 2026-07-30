@@ -109,6 +109,27 @@ class SplitRouterTest(unittest.TestCase):
         self.assertEqual(request.call_args.kwargs["payload"]["tabRef"], "tab-1")
         self.assertEqual(result["tabRef"], "vps:tab-1")
 
+    def test_snapshot_scoped_element_ref_keeps_backend_ownership(self) -> None:
+        with (
+            mock.patch.object(samewindow, "_targets", return_value=[LOCAL, VPS]),
+            mock.patch.object(samewindow, "_snapshot", return_value=snapshot("running", "stopped")),
+            mock.patch.object(
+                samewindow,
+                "_json_request",
+                return_value={
+                    "ok": True,
+                    "snapshot": {
+                        "tabRef": "tab-1",
+                        "elements": [{"ref": "s42:e1"}],
+                    },
+                },
+            ) as request,
+        ):
+            result = samewindow._control("/browser/snapshot", {"tabRef": "local:tab-1"})
+
+        self.assertEqual(request.call_args.kwargs["payload"]["tabRef"], "tab-1")
+        self.assertEqual(result["snapshot"]["elements"][0]["ref"], "local:s42:e1")
+
 
 if __name__ == "__main__":
     unittest.main()
