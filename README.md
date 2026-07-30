@@ -2,16 +2,38 @@
 
 **One browser. Two sets of hands.**
 
+[![License](https://img.shields.io/badge/license-NC--SA%201.0-6d5f74)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4f6d7a)
+![Deployment](https://img.shields.io/badge/deployment-self--hosted-52796f)
+![Protocol](https://img.shields.io/badge/protocol-MCP-7a6f9b)
+
 [中文介绍：不是让 AI 替你上网，是把网页放到你们之间](README.zh-CN.md)
 
-SameWindow runs a persistent Chrome on a Linux host and lets a person and an AI
-agent use that exact browser together. The person sees and controls it through
-noVNC; the agent reads semantic snapshots and acts through small MCP tools.
-Both sides share the same tabs, history, focus, and authenticated browser
-profile.
+SameWindow runs a persistent, dedicated Chrome and lets a person and an AI
+agent use that exact browser together. The window can live on a Linux VPS and
+be viewed through noVNC, or run natively beside the person in split mode. The
+agent reads semantic snapshots and acts through small MCP tools. Both sides
+share the same tabs, history, focus, and authenticated browser profile.
 
 SameWindow is the public shared-browser core only. It does not include a chat
 client, personal assistant prompts, private APIs, or any accounts.
+
+## What it looks like
+
+**Windows native mode — one real Chrome window, human and agent cursors**
+
+![SameWindow Windows native browser with two visible cursors](docs/images/windows-native-dual-cursor.jpg)
+
+**The VPS browser can sleep until it is explicitly needed**
+
+![SameWindow sleeping browser lifecycle dashboard](docs/images/vps-sleep-dashboard.jpg)
+
+**A self-hosted Bridge can build a more ambient “browse together” experience**
+
+![SameWindow integrated with a self-hosted browse-together and chat interface](docs/images/browse-together-host-integration.jpg)
+
+The last screenshot shows our private host integration as an example; the chat
+client is not part of this public repository.
 
 ## What it includes
 
@@ -104,6 +126,11 @@ If the VPS is far away, the optional
 but runs the visible browser beside the person. Frames stay on localhost while
 small control calls cross an SSH reverse tunnel. The original VPS Chrome can
 remain asleep as a manual fallback; ordinary browser calls never wake it.
+
+For Windows, use the
+[native Chrome + transparent cursor layer](split-deployment/windows-native/README.md)
+first: it needs no Docker, WSL, or VNC. Docker remains the cross-platform
+option for macOS, Linux, and users who prefer container isolation.
 
 ## Connect an MCP client
 

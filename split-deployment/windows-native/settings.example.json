@@ -1,0 +1,12 @@
+{
+  "homeUrl": "https://www.google.com/",
+  "chromePath": "",
+  "server": "",
+  "sshPort": 22,
+  "identityFile": "",
+  "privacyExit": "vps",
+  "socksPort": 1080,
+  "proxyServer": "",
+  "windowWidth": 1280,
+  "windowHeight": 820
+}

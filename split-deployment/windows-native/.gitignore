@@ -1,0 +1,5 @@
+data/
+runtime/
+settings.json
+assets/*.png
+assets/fox-icon.ico

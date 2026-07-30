@@ -9,6 +9,7 @@ const host = process.env.SAMEWINDOW_CONTROL_HOST || "127.0.0.1";
 const port = Number(process.env.SAMEWINDOW_CONTROL_PORT || 6081);
 const cdpPort = process.env.SAMEWINDOW_CDP_PORT || "9222";
 const cdpUrl = process.env.SAMEWINDOW_CDP_URL || `http://127.0.0.1:${cdpPort}`;
+const cursorCoordinateMode = process.env.SAMEWINDOW_CURSOR_COORDINATE_MODE || "screen";
 const cursorStateFile = process.env.SAMEWINDOW_CURSOR_STATE_FILE
   || "/var/lib/samewindow/novnc-web/cursor-state.json";
 const allowSensitiveAutomation = process.env.SAMEWINDOW_ALLOW_SENSITIVE_AUTOMATION === "1";
@@ -79,6 +80,7 @@ let pageTextHashes = new Map();
 let pageTextCaptureGeneration = 0;
 let browserConnection = null;
 let selectedPage = null;
+let selectedPageObservedAt = 0;
 let nextTabSequence = 1;
 let nextElementSequence = 1;
 let nextSnapshotSequence = 1;
@@ -609,6 +611,7 @@ async function observeWatchState() {
 function resetBrowserState() {
   browserConnection = null;
   selectedPage = null;
+  selectedPageObservedAt = 0;
   pageToRef = new WeakMap();
   refToPage = new Map();
   elementRefs = new Map();
@@ -654,6 +657,14 @@ async function findPage(tabRef = "", bringToFront = false) {
 async function findObservedPage() {
   const pages = await getPages();
   for (const page of pages) getTabRef(page);
+  if (
+    selectedPage
+    && !selectedPage.isClosed()
+    && pages.includes(selectedPage)
+    && Date.now() - selectedPageObservedAt < 2000
+  ) {
+    return selectedPage;
+  }
   for (const page of pages) {
     const state = await page.evaluate(() => ({
       focused: document.hasFocus(),
@@ -672,6 +683,61 @@ async function findObservedPage() {
     }
   }
   return findPage("", false);
+}
+
+async function pageGeometry(page) {
+  const geometry = await page.evaluate(() => ({
+    screenX: window.screenX,
+    screenY: window.screenY,
+    outerWidth: window.outerWidth,
+    outerHeight: window.outerHeight,
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    devicePixelRatio: window.devicePixelRatio,
+  }));
+  return {
+    tabRef: getTabRef(page),
+    title: cleanString(await page.title(), 200),
+    url: cleanString(page.url(), 2048),
+    ...geometry,
+  };
+}
+
+function normalizedAddressHint(value) {
+  return cleanString(value, 2048)
+    .toLowerCase()
+    .replace(/^[a-z]+:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/+$/, "");
+}
+
+async function observeNativeTab(value) {
+  const pages = await getPages();
+  for (const page of pages) getTabRef(page);
+  const title = cleanString(value.title, 200);
+  const addressHint = normalizedAddressHint(value.address);
+  const pageDetails = await Promise.all(pages.map(async (page) => ({
+    page,
+    title: cleanString(await page.title(), 200),
+    url: cleanString(page.url(), 2048),
+  })));
+  let candidates = title
+    ? pageDetails.filter((entry) => entry.title === title)
+    : pageDetails;
+  if (addressHint) {
+    const addressMatches = candidates.filter((entry) => (
+      normalizedAddressHint(entry.url).includes(addressHint)
+      || addressHint.includes(normalizedAddressHint(entry.url))
+    ));
+    if (addressMatches.length) candidates = addressMatches;
+  }
+  const match = candidates[0] ?? null;
+  if (!match) {
+    throw new Error(`observed Chrome tab was not found: ${title || addressHint || "unknown"}`);
+  }
+  selectedPage = match.page;
+  selectedPageObservedAt = Date.now();
+  return pageGeometry(match.page);
 }
 
 async function listTabs() {
@@ -923,6 +989,16 @@ async function cursorCoordinatesForTarget(page, target) {
   await target.scrollIntoViewIfNeeded({ timeout: 5000 });
   const box = await target.boundingBox();
   if (!box) throw new Error("target has no visible bounding box");
+  if (cursorCoordinateMode === "page") {
+    const viewport = await page.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }));
+    return {
+      x: Math.max(0, Math.min(1, (box.x + box.width / 2) / viewport.width)),
+      y: Math.max(0, Math.min(1, (box.y + box.height / 2) / viewport.height)),
+    };
+  }
   const geometry = await page.evaluate(() => ({
     screenWidth: window.screen.width,
     screenHeight: window.screen.height,
@@ -1020,14 +1096,18 @@ async function evaluateAtCursor(state) {
   const page = await findObservedPage();
   await assertPageSafe(page, "pointer inspection");
   return page.evaluate((pointer) => {
-    const screenPoint = {
-      x: pointer.x * window.screen.width,
-      y: pointer.y * window.screen.height,
-    };
-    const sideInset = Math.max(0, (window.outerWidth - window.innerWidth) / 2);
-    const topInset = Math.max(0, window.outerHeight - window.innerHeight - sideInset);
-    const clientX = screenPoint.x - window.screenX - sideInset;
-    const clientY = screenPoint.y - window.screenY - topInset;
+    const clientX = pointer.coordinateMode === "page"
+      ? pointer.x * window.innerWidth
+      : pointer.x * window.screen.width - window.screenX
+        - Math.max(0, (window.outerWidth - window.innerWidth) / 2);
+    const clientY = pointer.coordinateMode === "page"
+      ? pointer.y * window.innerHeight
+      : pointer.y * window.screen.height - window.screenY
+        - Math.max(
+          0,
+          window.outerHeight - window.innerHeight
+            - Math.max(0, (window.outerWidth - window.innerWidth) / 2),
+        );
     if (clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight) {
       return {
         region: "browser-chrome",
@@ -1054,7 +1134,7 @@ async function evaluateAtCursor(state) {
         rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       },
     };
-  }, state);
+  }, { ...state, coordinateMode: cursorCoordinateMode });
 }
 
 async function browserStatus() {
@@ -1125,6 +1205,20 @@ async function routeRequest(request, response, origin) {
     sendJson(response, 200, await browserStatus(), origin);
     return;
   }
+  if (request.method === "GET" && requestUrl.pathname === "/browser/geometry") {
+    sendJson(response, 200, {
+      ok: true,
+      geometry: await pageGeometry(await findObservedPage()),
+    }, origin);
+    return;
+  }
+  if (request.method === "POST" && requestUrl.pathname === "/browser/observed-tab") {
+    sendJson(response, 200, {
+      ok: true,
+      geometry: await observeNativeTab(await readJsonBody(request)),
+    }, origin);
+    return;
+  }
   if (request.method === "GET" && requestUrl.pathname === "/browser/tabs") {
     sendJson(response, 200, { ok: true, tabs: await listTabs() }, origin);
     return;
@@ -1147,6 +1241,12 @@ async function routeRequest(request, response, origin) {
   }
   if (request.method === "POST" && requestUrl.pathname === "/browser/close") {
     sendJson(response, 200, { ok: true, result: await closePage(await readJsonBody(request)) }, origin);
+    return;
+  }
+  if (request.method === "POST" && requestUrl.pathname === "/browser/shutdown") {
+    const browser = await getBrowser();
+    await browser.close();
+    sendJson(response, 200, { ok: true, closed: true }, origin);
     return;
   }
   if (request.method === "POST" && requestUrl.pathname === "/browser/snapshot") {
