@@ -228,6 +228,12 @@ Ubuntu VPS
 
 SameWindow 也会阻止 agent 读取登录、验证、支付等敏感页面，以及密码和验证码输入框。共享不意味着毫无边界；人类始终应该知道自己正在把哪一扇窗口交出来。
 
+如果 VPS 离你很远，还可以使用
+[分体部署](split-deployment/README.zh-CN.md)：agent 继续住在服务器，浏览器
+搬到人类手边。画面只走 localhost，小体积控制指令再通过 SSH 反向隧道跨过
+网络。原来的 VPS Chrome 会继续睡着，只有 agent 明确调用 lifecycle start
+时才作为备用窗口醒来；普通浏览器调用没有偷偷叫醒它的权限。
+
 ## 需要什么样的 VPS
 
 如果只是一个人和一个 agent，共享一两张普通网页：

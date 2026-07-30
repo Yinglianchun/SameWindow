@@ -1,0 +1,28 @@
+# SameWindow split deployment — run this on the machine next to the human.
+#   cd split-deployment && docker compose up -d --build
+# Ports bind to 127.0.0.1 only: nothing is exposed to the network; the remote
+# agent reaches the control API through your SSH reverse tunnel (see tunnel.sh).
+services:
+  samewindow-local:
+    build:
+      context: ..
+      dockerfile: split-deployment/Dockerfile
+    container_name: samewindow-local
+    ports:
+      - "127.0.0.1:6080:6080"   # viewer: open http://127.0.0.1:6080/samewindow.html
+      - "127.0.0.1:6081:6081"   # control API: tunnel.sh forwards this to the server
+    volumes:
+      - chrome-profile:/data/chrome-profile   # logins survive rebuilds
+    environment:
+      - SAMEWINDOW_SCREEN=1440x900x24
+      # Privacy exit (optional): uncomment so page traffic egresses from your
+      # server via the tunnel's SOCKS — websites then see the server's IP, not
+      # your home IP. Requires tunnel.sh running with its -D forward.
+      # - SAMEWINDOW_PROXY=socks5://host.docker.internal:1080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    shm_size: 1gb
+    restart: unless-stopped
+
+volumes:
+  chrome-profile:

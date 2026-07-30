@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- macOS autostart for tunnel.sh: runs at login, restarts if it dies.
+     1. Replace YOURNAME and the path below with your actual username/path.
+     2. cp launchd.example.plist ~/Library/LaunchAgents/samewindow-tunnel.plist
+     3. launchctl load ~/Library/LaunchAgents/samewindow-tunnel.plist
+     Linux users: run tunnel.sh under autossh or a systemd user unit instead. -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>samewindow-tunnel</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string>
+    <string>/Users/YOURNAME/SameWindow/split-deployment/tunnel.sh</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/samewindow-tunnel.log</string>
+  <key>StandardErrorPath</key><string>/tmp/samewindow-tunnel.log</string>
+</dict></plist>
