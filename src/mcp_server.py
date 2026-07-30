@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -60,7 +61,8 @@ mcp = FastMCP(
         "Control one browser shared visibly with the user. An already-running local split browser is preferred; "
         "an already-running VPS browser may be used as a fallback. Ordinary browser tools never wake a sleeping "
         "fallback; call shared_browser_lifecycle_start explicitly when neither backend is running. "
-        "Take a fresh snapshot before ref-based actions and refresh after navigation or major DOM changes. "
+        "Take a fresh snapshot before ref-based actions, copy its snapshot-scoped element refs exactly, and refresh "
+        "after navigation or major DOM changes. "
         "Never request or enter passwords, one-time codes, recovery codes, payment data, or other secrets. "
         "Sensitive pages are intentionally blocked from agent automation; ask the user to complete them in the viewer."
     ),
@@ -255,7 +257,11 @@ def _prefix_refs(value: Any, backend: str, split_mode: bool) -> Any:
         if (
             key.lower().endswith("ref")
             and isinstance(item, str)
-            and (item.startswith("tab-") or (item.startswith("e") and item[1:].isdigit()))
+            and (
+                item.startswith("tab-")
+                or (item.startswith("e") and item[1:].isdigit())
+                or re.fullmatch(r"s\d+:e\d+", item)
+            )
         ):
             result[key] = f"{backend}:{item}"
         else:
@@ -456,7 +462,7 @@ def shared_browser_snapshot(
     limit: int = 50,
     include_pointer_extras: bool = False,
 ) -> dict[str, Any]:
-    """Read visible text and interactive elements from the foreground or referenced tab."""
+    """Read visible text and snapshot-scoped element refs from the foreground or referenced tab."""
     return _control(
         "/browser/snapshot",
         {
@@ -473,7 +479,7 @@ def shared_browser_click(
     ref: str,
     wait_after_ms: int = 0,
 ) -> dict[str, Any]:
-    """Click an element reference from the most recent snapshot."""
+    """Click a snapshot-scoped element ref returned for this tab's latest snapshot."""
     return _control(
         "/browser/click",
         {"tabRef": tab_ref, "ref": ref, "waitAfterMs": wait_after_ms},
@@ -488,7 +494,7 @@ def shared_browser_type(
     clear: bool = True,
     submit: bool = False,
 ) -> dict[str, Any]:
-    """Type non-sensitive text into an element reference from the latest snapshot."""
+    """Type non-sensitive text into a snapshot-scoped ref from this tab's latest snapshot."""
     return _control(
         "/browser/type",
         {

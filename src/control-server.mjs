@@ -82,12 +82,12 @@ let browserConnection = null;
 let selectedPage = null;
 let selectedPageObservedAt = 0;
 let nextTabSequence = 1;
-let nextElementSequence = 1;
 let nextSnapshotSequence = 1;
 let cursorSequence = Date.now();
 let pageToRef = new WeakMap();
 let refToPage = new Map();
 let elementRefs = new Map();
+let pageOperationLocks = new WeakMap();
 
 function sendJson(response, status, value, origin = null) {
   if (origin && allowedOrigins.has(origin)) {
@@ -615,6 +615,7 @@ function resetBrowserState() {
   pageToRef = new WeakMap();
   refToPage = new Map();
   elementRefs = new Map();
+  pageOperationLocks = new WeakMap();
 }
 
 async function getBrowser() {
@@ -792,21 +793,36 @@ async function closePage(value) {
   const closedRef = getTabRef(page);
   await page.close();
   refToPage.delete(closedRef);
-  await clearElementRefs();
+  await clearElementRefs(page);
   const remaining = (await getPages()).filter((candidate) => !candidate.isClosed());
   selectedPage = remaining[0] ?? null;
   if (selectedPage) await selectedPage.bringToFront();
   return { closed: true, closedRef, tabs: await listTabs() };
 }
 
-async function clearElementRefs() {
-  const pages = [...new Set([...elementRefs.values()].map((entry) => entry.page))];
-  elementRefs.clear();
+async function clearElementRefs(page = null) {
+  const pages = page
+    ? [page]
+    : [...new Set([...elementRefs.values()].map((entry) => entry.page))];
+  for (const [ref, entry] of elementRefs) {
+    if (!page || entry.page === page) elementRefs.delete(ref);
+  }
   await Promise.all(pages.map((page) => page.evaluate(() => {
     document.querySelectorAll("[data-samewindow-snapshot-ref]").forEach((element) => {
       element.removeAttribute("data-samewindow-snapshot-ref");
     });
   }).catch(() => {})));
+}
+
+async function withPageOperationLock(page, operation) {
+  const previous = pageOperationLocks.get(page) ?? Promise.resolve();
+  const current = previous.catch(() => {}).then(operation);
+  pageOperationLocks.set(page, current);
+  try {
+    return await current;
+  } finally {
+    if (pageOperationLocks.get(page) === current) pageOperationLocks.delete(page);
+  }
 }
 
 async function snapshotPage(value) {
@@ -816,20 +832,16 @@ async function snapshotPage(value) {
   const page = tabRef
     ? await findPage(tabRef, false)
     : await findObservedPage();
-  await assertPageSafe(page, "snapshot");
-  elementRefs.clear();
-  nextElementSequence = 1;
-  const snapshotId = `s${nextSnapshotSequence++}`;
-  const snapshot = await page.evaluate(({
+  return withPageOperationLock(page, async () => {
+    await assertPageSafe(page, "snapshot");
+    await clearElementRefs(page);
+    const snapshotId = `s${nextSnapshotSequence++}`;
+    const snapshot = await page.evaluate(({
     selector,
     limit: maxElements,
     snapshotId: activeSnapshotId,
     includePointerExtras,
-  }) => {
-    document.querySelectorAll("[data-samewindow-snapshot-ref]").forEach((element) => {
-      element.removeAttribute("data-samewindow-snapshot-ref");
-    });
-
+    }) => {
     const clean = (input, maxLength = 220) => String(input || "").trim().replace(/\s+/g, " ").slice(0, maxLength);
     const candidates = [];
     const standardNodes = [...document.querySelectorAll(selector)];
@@ -904,11 +916,10 @@ async function snapshotPage(value) {
     }
 
     const elements = candidates.slice(0, maxElements).map((candidate, index) => {
-      const ref = `e${index + 1}`;
-      const marker = `${activeSnapshotId}:${ref}`;
-      candidate.element.setAttribute("data-samewindow-snapshot-ref", marker);
+      const ref = `${activeSnapshotId}:e${index + 1}`;
+      candidate.element.setAttribute("data-samewindow-snapshot-ref", ref);
       const { element: _element, ...metadata } = candidate;
-      return { ref, marker, ...metadata };
+      return { ref, ...metadata };
     });
     const rawVisibleText = document.body?.innerText || "";
     return {
@@ -919,36 +930,36 @@ async function snapshotPage(value) {
       elements,
       totalCandidates: candidates.length,
     };
-  }, {
-    selector: interactiveSelector,
-    limit,
-    snapshotId,
-    includePointerExtras: value.includePointerExtras === true,
-  });
-
-  const elements = snapshot.elements.map(({ marker, ...element }) => {
-    elementRefs.set(element.ref, {
-      page,
-      selector: `[data-samewindow-snapshot-ref="${marker}"]`,
+    }, {
+      selector: interactiveSelector,
+      limit,
       snapshotId,
+      includePointerExtras: value.includePointerExtras === true,
     });
-    nextElementSequence += 1;
-    return element;
+
+    const elements = snapshot.elements.map((element) => {
+      elementRefs.set(element.ref, {
+        page,
+        selector: `[data-samewindow-snapshot-ref="${element.ref}"]`,
+        snapshotId,
+      });
+      return element;
+    });
+    return {
+      snapshotId,
+      tabRef: getTabRef(page),
+      title: snapshot.title,
+      url: snapshot.url,
+      visibleText: snapshot.visibleText,
+      elements,
+      truncated: elements.length >= limit || snapshot.visibleTextTruncated,
+      totalCandidates: snapshot.totalCandidates,
+      timingMs: Math.round((performance.now() - startedAt) * 10) / 10,
+    };
   });
-  return {
-    tabRef: getTabRef(page),
-    title: snapshot.title,
-    url: snapshot.url,
-    visibleText: snapshot.visibleText,
-    elements,
-    truncated: elements.length >= limit || snapshot.visibleTextTruncated,
-    totalCandidates: snapshot.totalCandidates,
-    timingMs: Math.round((performance.now() - startedAt) * 10) / 10,
-  };
 }
 
-async function getTarget(value) {
-  const page = await findPage(cleanString(value.tabRef, 50), false);
+async function getTarget(value, page) {
   const ref = cleanString(value.ref, 30);
   if (!ref) throw new Error("ref from a fresh snapshot is required");
   const entry = elementRefs.get(ref);
@@ -1021,21 +1032,24 @@ async function cursorCoordinatesForTarget(page, target) {
 
 async function clickTarget(value) {
   const startedAt = performance.now();
-  const { page, target, ref } = await getTarget(value);
-  await page.bringToFront();
-  const cursor = await cursorCoordinatesForTarget(page, target);
-  await writeVisualCursor(cursor.x, cursor.y, true, value.durationMs ?? 220);
-  const waitAfterMs = Math.max(0, Math.min(2000, Number(value.waitAfterMs) || 0));
-  await target.click({ timeout: 7000, noWaitAfter: waitAfterMs === 0 });
-  if (waitAfterMs > 0) await page.waitForTimeout(waitAfterMs);
-  return {
-    clicked: true,
-    ref,
-    tabRef: getTabRef(page),
-    title: cleanString(await page.title(), 200),
-    url: page.url(),
-    timingMs: Math.round((performance.now() - startedAt) * 10) / 10,
-  };
+  const page = await findPage(cleanString(value.tabRef, 50), false);
+  return withPageOperationLock(page, async () => {
+    const { target, ref } = await getTarget(value, page);
+    await page.bringToFront();
+    const cursor = await cursorCoordinatesForTarget(page, target);
+    await writeVisualCursor(cursor.x, cursor.y, true, value.durationMs ?? 220);
+    const waitAfterMs = Math.max(0, Math.min(2000, Number(value.waitAfterMs) || 0));
+    await target.click({ timeout: 7000, noWaitAfter: waitAfterMs === 0 });
+    if (waitAfterMs > 0) await page.waitForTimeout(waitAfterMs);
+    return {
+      clicked: true,
+      ref,
+      tabRef: getTabRef(page),
+      title: cleanString(await page.title(), 200),
+      url: page.url(),
+      timingMs: Math.round((performance.now() - startedAt) * 10) / 10,
+    };
+  });
 }
 
 async function pressKey(value) {
@@ -1062,34 +1076,37 @@ async function pressKey(value) {
 async function typeIntoTarget(value) {
   const text = String(value.text ?? "");
   if (!text || text.length > 10000) throw new Error("text must contain 1-10000 characters");
-  const { page, target, ref } = await getTarget(value);
-  await page.bringToFront();
-  const cursor = await cursorCoordinatesForTarget(page, target);
-  await writeVisualCursor(cursor.x, cursor.y, false, value.durationMs ?? 180);
+  const page = await findPage(cleanString(value.tabRef, 50), false);
+  return withPageOperationLock(page, async () => {
+    const { target, ref } = await getTarget(value, page);
+    await page.bringToFront();
+    const cursor = await cursorCoordinatesForTarget(page, target);
+    await writeVisualCursor(cursor.x, cursor.y, false, value.durationMs ?? 180);
 
-  const clear = value.clear !== false;
-  if (clear) {
-    try {
-      await target.fill(text, { timeout: 7000 });
-    } catch {
+    const clear = value.clear !== false;
+    if (clear) {
+      try {
+        await target.fill(text, { timeout: 7000 });
+      } catch {
+        await target.click({ timeout: 7000 });
+        await page.keyboard.press("Control+A");
+        await page.keyboard.insertText(text);
+      }
+    } else {
       await target.click({ timeout: 7000 });
-      await page.keyboard.press("Control+A");
       await page.keyboard.insertText(text);
     }
-  } else {
-    await target.click({ timeout: 7000 });
-    await page.keyboard.insertText(text);
-  }
-  if (value.submit === true) await page.keyboard.press("Enter");
-  return {
-    typed: true,
-    typedChars: text.length,
-    submitted: value.submit === true,
-    ref,
-    tabRef: getTabRef(page),
-    title: cleanString(await page.title(), 200),
-    url: page.url(),
-  };
+    if (value.submit === true) await page.keyboard.press("Enter");
+    return {
+      typed: true,
+      typedChars: text.length,
+      submitted: value.submit === true,
+      ref,
+      tabRef: getTabRef(page),
+      title: cleanString(await page.title(), 200),
+      url: page.url(),
+    };
+  });
 }
 
 async function evaluateAtCursor(state) {

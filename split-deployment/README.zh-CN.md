@@ -75,8 +75,8 @@ SAMEWINDOW_FALLBACK_LIFECYCLE_URL=http://127.0.0.1:6082
 本地在线时，普通浏览器工具直接使用本地 Chrome。本地电脑睡着、VPS
 浏览器也没开时，普通工具只会明确报错，**不会偷偷唤醒任何东西**。agent
 必须先显式调用 `shared_browser_lifecycle_start`，SameWindow 才会启动
-VPS 备用浏览器。临时 ref 会标成 `local:` / `vps:`，不会把一扇 Chrome
-里的旧 ref 误用到另一扇。
+VPS 备用浏览器。临时 ref 会标成 `local:` / `vps:`；例如快照范围 ref
+`s42:e1` 会变成 `local:s42:e1`，不会被误用到另一扇 Chrome。
 
 把这些变量放进 `mcp_server.py` 的运行环境；如果使用已安装的 HTTP MCP
 服务，就写进 `/etc/samewindow.env`。隧道的 macOS 开机自启见

@@ -90,8 +90,9 @@ Ordinary browser tools use the local browser while it is online. If the local
 machine is asleep and the VPS browser is stopped, they return a clear error and
 do **not** wake anything. The agent must explicitly call
 `shared_browser_lifecycle_start`; only then does SameWindow start the VPS
-fallback. Temporary refs are tagged `local:` or `vps:` so a ref from one Chrome
-cannot be used accidentally in the other.
+fallback. Temporary refs are tagged `local:` or `vps:`; a scoped ref such as
+`s42:e1` therefore becomes `local:s42:e1` and cannot be used accidentally in
+the other Chrome.
 
 Put these values in the environment used by `mcp_server.py` (or
 `/etc/samewindow.env` for the installed HTTP MCP service). For tunnel autostart

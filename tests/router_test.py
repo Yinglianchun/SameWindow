@@ -109,6 +109,40 @@ class SplitRouterTest(unittest.TestCase):
         self.assertEqual(request.call_args.kwargs["payload"]["tabRef"], "tab-1")
         self.assertEqual(result["tabRef"], "vps:tab-1")
 
+    def test_snapshot_scoped_element_refs_keep_backend_ownership(self) -> None:
+        with (
+            mock.patch.object(samewindow, "_targets", return_value=[LOCAL, VPS]),
+            mock.patch.object(samewindow, "_snapshot", return_value=snapshot("running", "running")),
+            mock.patch.object(
+                samewindow,
+                "_json_request",
+                return_value={
+                    "ok": True,
+                    "snapshot": {
+                        "snapshotId": "s42",
+                        "tabRef": "tab-1",
+                        "elements": [{"ref": "s42:e1"}],
+                    },
+                },
+            ) as request,
+        ):
+            result = samewindow._control(
+                "/browser/click",
+                {"tabRef": "vps:tab-1", "ref": "vps:s42:e1"},
+            )
+
+        self.assertEqual(request.call_args.args[0], VPS["control"])
+        self.assertEqual(
+            request.call_args.kwargs["payload"],
+            {"tabRef": "tab-1", "ref": "s42:e1"},
+        )
+        self.assertEqual(result["snapshot"]["tabRef"], "vps:tab-1")
+        self.assertEqual(result["snapshot"]["elements"][0]["ref"], "vps:s42:e1")
+        self.assertEqual(
+            samewindow._prefix_refs({"ref": "e1"}, "local", True)["ref"],
+            "local:e1",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

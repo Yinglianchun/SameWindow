@@ -60,7 +60,10 @@ authenticated private transport and never expose ports `6080`–`6083` publicly.
 
 The agent cannot access cookies, browser storage, arbitrary JavaScript
 evaluation, arbitrary CSS selectors, or screenshots through the public tools.
-Actions use temporary references from a fresh snapshot. Login, password,
+Actions use snapshot-scoped temporary references such as `s42:e1`. A new
+snapshot invalidates the previous element refs for that tab, while the latest
+refs for other tabs remain valid. The snapshot also returns `snapshotId` for
+diagnostics, but actions only need the returned ref. Login, password,
 one-time-code, identity, checkout, and payment pages are blocked from snapshots
 and actions by default.
 
@@ -206,7 +209,8 @@ excluded.
 
 1. Check `shared_browser_lifecycle_status`; start it if needed.
 2. Call `shared_browser_snapshot` on the visible tab.
-3. Click or type using a returned element reference.
+3. Click or type by copying a returned snapshot-scoped element reference
+   exactly; no extra snapshot parameter is required.
 4. Take a new snapshot after navigation or a major page change.
 5. Let the person enter secrets manually in the visible viewer.
 6. Stop the browser only when the person is finished or resources should be
