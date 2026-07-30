@@ -99,6 +99,12 @@ ssh -N \
 Then open <http://127.0.0.1:6082>. The dashboard starts and stops the shared
 browser without deleting its profile.
 
+If the VPS is far away, the optional
+[split deployment](split-deployment/README.md) keeps the agent on the server
+but runs the visible browser beside the person. Frames stay on localhost while
+small control calls cross an SSH reverse tunnel. The original VPS Chrome can
+remain asleep as a manual fallback; ordinary browser calls never wake it.
+
 ## Connect an MCP client
 
 The simplest remote setup uses MCP over SSH stdio, so no MCP port needs to be
@@ -191,6 +197,7 @@ python -m venv .venv
 npm run check
 python -m py_compile src/mcp_server.py
 python tests/mcp_smoke.py
+python tests/router_test.py
 ./scripts/check-secrets.sh
 ```
 
