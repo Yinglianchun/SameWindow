@@ -87,6 +87,16 @@ test("snapshot-scoped refs stay bound across refreshes, concurrency, and tabs", 
         <span>Count: <strong id="count">0</strong></span>`);
       return;
     }
+    if (request.url === "/covered") {
+      response.end(`<!doctype html>
+        <style>
+          #covered-action { position: fixed; left: 40px; top: 40px; width: 160px; height: 48px; }
+          #login-overlay { position: fixed; left: 30px; top: 30px; width: 180px; height: 68px; z-index: 10; background: white; }
+        </style>
+        <button id="covered-action">Covered action</button>
+        <div id="login-overlay" role="dialog" aria-label="Login required">Sign in to continue</div>`);
+      return;
+    }
     response.end(`<!doctype html>
       <label>Message <input id="message" aria-label="Message"></label>`);
   });
@@ -132,6 +142,12 @@ test("snapshot-scoped refs stay bound across refreshes, concurrency, and tabs", 
     });
     const tabA = openedA.body.tab.ref;
     const tabB = openedB.body.tab.ref;
+
+    const openedCovered = await post(baseUrl, "/browser/open", {
+      url: `http://127.0.0.1:${fixturePort}/covered`,
+      newTab: true,
+    });
+    const tabCovered = openedCovered.body.tab.ref;
 
     const first = (await post(baseUrl, "/browser/snapshot", { tabRef: tabA })).body.snapshot;
     const firstRef = element(first, "Increment").ref;
@@ -184,6 +200,21 @@ test("snapshot-scoped refs stay bound across refreshes, concurrency, and tabs", 
     });
     assert.equal(typed.status, 200);
     assert.equal(typed.body.result.ref, latestBRef);
+
+    const coveredSnapshot = (
+      await post(baseUrl, "/browser/snapshot", { tabRef: tabCovered })
+    ).body.snapshot;
+    const coveredRef = element(coveredSnapshot, "Covered action").ref;
+    const obstructedStartedAt = Date.now();
+    const obstructed = await post(baseUrl, "/browser/click", {
+      tabRef: tabCovered,
+      ref: coveredRef,
+    });
+    assert.equal(obstructed.status, 409);
+    assert.equal(obstructed.body.code, "obstructed");
+    assert.equal(obstructed.body.details.coveredBy.id, "login-overlay");
+    assert.match(obstructed.body.error, /Login required/);
+    assert.ok(Date.now() - obstructedStartedAt < 1500, "obstructed click should fail fast");
 
     const afterClick = (await post(baseUrl, "/browser/snapshot", { tabRef: tabA })).body.snapshot;
     assert.match(afterClick.visibleText, /Count:\s*2/);

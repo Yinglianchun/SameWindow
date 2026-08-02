@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import io
+import json
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -142,6 +145,34 @@ class SplitRouterTest(unittest.TestCase):
             samewindow._prefix_refs({"ref": "e1"}, "local", True)["ref"],
             "local:e1",
         )
+
+    def test_structured_control_error_keeps_real_reason(self) -> None:
+        body = json.dumps(
+            {
+                "ok": False,
+                "code": "obstructed",
+                "error": "element ref s7:e2 is obstructed by Login required",
+                "details": {"coveredBy": {"id": "login-overlay"}},
+            }
+        ).encode("utf-8")
+        error = urllib.error.HTTPError(
+            "http://127.0.0.1:6081/browser/click",
+            409,
+            "Conflict",
+            {},
+            io.BytesIO(body),
+        )
+        with mock.patch.object(urllib.request, "urlopen", side_effect=error):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                r"\[obstructed\].*Login required.*login-overlay",
+            ):
+                samewindow._json_request(
+                    "http://127.0.0.1:6081",
+                    "/browser/click",
+                    method="POST",
+                    payload={"tabRef": "tab-1", "ref": "s7:e2"},
+                )
 
 
 if __name__ == "__main__":

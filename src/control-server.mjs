@@ -1033,6 +1033,67 @@ async function cursorCoordinatesForTarget(page, target) {
   };
 }
 
+function browserActionError(code, message, details = null) {
+  const error = new Error(message);
+  error.code = code;
+  error.httpStatus = 409;
+  error.details = details;
+  return error;
+}
+
+async function targetObstruction(target) {
+  return target.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const left = Math.max(0, rect.left);
+    const right = Math.min(window.innerWidth, rect.right);
+    const top = Math.max(0, rect.top);
+    const bottom = Math.min(window.innerHeight, rect.bottom);
+    if (right <= left || bottom <= top) return null;
+    const x = Math.max(0, Math.min(window.innerWidth - 1, (left + right) / 2));
+    const y = Math.max(0, Math.min(window.innerHeight - 1, (top + bottom) / 2));
+    const receiver = document.elementFromPoint(x, y);
+    if (!receiver || receiver === element || element.contains(receiver)) return null;
+    const clean = (input, maxLength = 160) => String(input || "").trim().replace(/\s+/g, " ").slice(0, maxLength);
+    return {
+      point: { x: Math.round(x), y: Math.round(y) },
+      coveredBy: {
+        tag: receiver.tagName?.toLowerCase() || null,
+        id: clean(receiver.id, 100) || null,
+        className: clean(receiver.getAttribute?.("class"), 160) || null,
+        role: clean(receiver.getAttribute?.("role"), 80) || null,
+        ariaLabel: clean(receiver.getAttribute?.("aria-label"), 160) || null,
+        text: clean(receiver.innerText || receiver.textContent, 160) || null,
+      },
+    };
+  });
+}
+
+async function assertTargetClickable(target, ref) {
+  const obstruction = await targetObstruction(target);
+  if (obstruction) {
+    const coveredBy = obstruction.coveredBy;
+    const label = coveredBy.ariaLabel || coveredBy.text || coveredBy.id || coveredBy.role || coveredBy.tag || "another element";
+    throw browserActionError(
+      "obstructed",
+      `element ref ${ref} is obstructed by ${label}; take a fresh snapshot or ask the user to dismiss the overlay`,
+      obstruction,
+    );
+  }
+  try {
+    await target.click({ trial: true, timeout: 1500 });
+  } catch (error) {
+    const reason = cleanString(error?.message || error, 500);
+    const code = /intercepts pointer events|not receiving pointer events|obscured|covered/i.test(reason)
+      ? "obstructed"
+      : "not_actionable";
+    throw browserActionError(
+      code,
+      `element ref ${ref} is not clickable: ${reason}`,
+      { playwright: reason },
+    );
+  }
+}
+
 async function clickTarget(value) {
   const startedAt = performance.now();
   const page = await findPage(cleanString(value.tabRef, 50), false, true);
@@ -1040,6 +1101,7 @@ async function clickTarget(value) {
     const { target, ref } = await getTarget(value, page);
     await page.bringToFront();
     const cursor = await cursorCoordinatesForTarget(page, target);
+    await assertTargetClickable(target, ref);
     await writeVisualCursor(cursor.x, cursor.y, true, value.durationMs ?? 220);
     const waitAfterMs = Math.max(0, Math.min(2000, Number(value.waitAfterMs) || 0));
     await target.click({ timeout: 7000, noWaitAfter: waitAfterMs === 0 });
@@ -1316,8 +1378,16 @@ const server = http.createServer(async (request, response) => {
   try {
     await routeRequest(request, response, origin);
   } catch (error) {
-    const status = error?.name === "TimeoutError" ? 504 : 400;
-    sendJson(response, status, { ok: false, error: cleanString(error?.message || error, 500) }, origin);
+    const timeout = error?.name === "TimeoutError";
+    const status = Number(error?.httpStatus) || (timeout ? 409 : 400);
+    const payload = {
+      ok: false,
+      error: cleanString(error?.message || error, 500),
+    };
+    const code = cleanString(error?.code || (timeout ? "action_timeout" : ""), 80);
+    if (code) payload.code = code;
+    if (error?.details && typeof error.details === "object") payload.details = error.details;
+    sendJson(response, status, payload, origin);
   }
 });
 

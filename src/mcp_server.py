@@ -102,7 +102,24 @@ def _json_request(
         with urllib.request.urlopen(request, timeout=timeout) as response:
             result = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
-        detail = error.read().decode("utf-8", errors="replace")[:500]
+        detail = error.read().decode("utf-8", errors="replace")[:4000]
+        try:
+            parsed = json.loads(detail)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            message = str(parsed.get("error") or "SameWindow request failed")
+            code = str(parsed.get("code") or "").strip()
+            details = parsed.get("details")
+            code_text = f" [{code}]" if code else ""
+            details_text = (
+                f" details={json.dumps(details, ensure_ascii=False, separators=(',', ':'))}"
+                if isinstance(details, dict)
+                else ""
+            )
+            raise RuntimeError(
+                f"SameWindow request failed ({error.code}){code_text}: {message}{details_text}"
+            ) from error
         raise RuntimeError(f"SameWindow request failed ({error.code}): {detail}") from error
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         raise RuntimeError(f"SameWindow is unavailable: {error}") from error

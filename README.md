@@ -65,6 +65,12 @@ snapshot invalidates the previous element refs for that tab, while the latest
 refs for other tabs remain valid. The snapshot also returns `snapshotId` for
 diagnostics, but actions only need the returned ref. An explicitly supplied
 stale tab ref is rejected instead of silently falling back to another tab.
+Clicks also fail fast with an `obstructed` error and a compact `coveredBy`
+summary when an overlay receives the target point. Browser actionability
+timeouts are returned as action errors with the Playwright reason, not as a
+misleading gateway `504`. The expected flow is still for the person to sign in
+before enabling browse-together mode; this path handles expired sessions and
+ordinary overlays without asking the agent to cross that boundary.
 Login, password,
 one-time-code, identity, checkout, and payment pages are blocked from snapshots
 and actions by default.
