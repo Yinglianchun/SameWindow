@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const target = process.argv[2] ?? "/var/lib/samewindow/novnc-web/vnc.html";
+const target = path.resolve(process.argv[2] ?? "/var/lib/samewindow/novnc-web/vnc.html");
+if (path.basename(target) !== "vnc.html") {
+  throw new Error(`Refusing to patch non-vnc.html target: ${target}`);
+}
 const marker = '<script src="/user-cursor.js"></script>';
 const source = fs.readFileSync(target, "utf8");
 let patched = source;
