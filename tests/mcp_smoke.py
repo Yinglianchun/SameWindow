@@ -27,6 +27,8 @@ CORE_TOOLS = {
     "shared_browser_click",
     "shared_browser_type",
     "shared_browser_press",
+    "social_feed",
+    "social_read",
 }
 
 OPTIONAL_BROWSE_TOGETHER_TOOLS = {

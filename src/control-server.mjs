@@ -1,8 +1,9 @@
 import http from "node:http";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 
 import { chromium } from "playwright-core";
+import { createSocialReader } from "./social-read.mjs";
 
 
 const host = process.env.SAMEWINDOW_CONTROL_HOST || "127.0.0.1";
@@ -26,22 +27,6 @@ const allowedOrigins = new Set(
     .map((value) => value.trim())
     .filter(Boolean),
 );
-const interactiveSelector = [
-  "a[href]",
-  "button",
-  "input",
-  "textarea",
-  "select",
-  "[contenteditable='true']",
-  "[role='button']",
-  "[role='link']",
-  "[role='checkbox']",
-  "[role='menuitem']",
-  "[role='option']",
-  "[role='tab']",
-  "[tabindex]:not([tabindex='-1'])",
-].join(",");
-
 let cursorState = {
   available: false,
   inside: false,
@@ -71,6 +56,11 @@ let lastNearEmittedAt = 0;
 let lastPageFingerprint = "";
 let pageChangeCandidate = null;
 let lastPageCheckAt = 0;
+let pageObservationDirty = true;
+let pageContentChangedAt = 0;
+let watchObserverPages = new Map();
+let watchObserverContexts = new WeakSet();
+let watchObservationInFlight = false;
 let lastClickAt = 0;
 let pageStableSince = 0;
 let pageTextCapturedFingerprint = "";
@@ -257,7 +247,9 @@ async function sensitiveFormReason(page) {
       "input[name*='cvv' i]",
       "input[name*='cvc' i]",
     ].join(",");
-    return [...document.querySelectorAll(sensitiveSelector)].some(isRendered)
+    const hasSensitiveForm = (root) => [...root.querySelectorAll(sensitiveSelector)].some(isRendered)
+      || [...root.querySelectorAll("*")].some(el => el.shadowRoot && hasSensitiveForm(el.shadowRoot));
+    return hasSensitiveForm(document)
       ? "sensitive_form"
       : "";
   }).catch(() => "uninspectable_page");
@@ -287,7 +279,7 @@ async function extractVisiblePageText(expectedFingerprint, options = {}) {
   const fingerprint = `${observation.tabRef}\n${observation.url}`;
   if (fingerprint !== expectedFingerprint) return { stale: true };
 
-  const reason = sensitivePageReason(observation);
+  const reason = sensitivePageReason(observation) || await sensitiveFormReason(page);
   if (reason) return { skipped: true, reason, fingerprint };
 
   const maxChars = Number(options.maxChars) > 0 ? Number(options.maxChars) : pageTextMaxChars;
@@ -449,12 +441,113 @@ function resetWatchTracking() {
   lastPageFingerprint = "";
   pageChangeCandidate = null;
   lastPageCheckAt = 0;
+  pageObservationDirty = true;
+  pageContentChangedAt = 0;
   lastClickAt = 0;
   pageStableSince = 0;
   pageTextCapturedFingerprint = "";
   pageTextCaptureInFlight = false;
   pageTextLastAttemptAt = 0;
   pageTextHashes = new Map();
+}
+
+function installPageWatchObserver() {
+  globalThis.__samewindowWatchCleanup?.();
+  let timer;
+  let contentChanged = false;
+  const notify = (content) => {
+    contentChanged ||= content;
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      const changed = contentChanged;
+      contentChanged = false;
+      globalThis.__samewindowWatchChanged({
+        contentChanged: changed,
+        visible: document.visibilityState === "visible",
+        focused: document.hasFocus(),
+      }).catch(() => {});
+    }, 250);
+  };
+  const observer = new MutationObserver(() => notify(true));
+  observer.observe(document, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    // Track visibility/layout changes without watching every site attribute.
+    attributeFilter: ["hidden", "aria-hidden", "class", "style"],
+  });
+  const onVisible = () => notify(true);
+  document.addEventListener("visibilitychange", onVisible);
+  window.addEventListener("focus", onVisible);
+  globalThis.__samewindowWatchCleanup = () => {
+    observer.disconnect();
+    clearTimeout(timer);
+    document.removeEventListener("visibilitychange", onVisible);
+    window.removeEventListener("focus", onVisible);
+    delete globalThis.__samewindowWatchCleanup;
+  };
+  notify(false);
+}
+
+async function attachWatchObserver(page) {
+  if (!watchObserverPages.has(page)) {
+    const ready = page.exposeBinding("__samewindowWatchChanged", (source, change) => {
+      if (!watchState.enabled || source.frame !== page.mainFrame()) return;
+      if (!change.visible && !change.focused) return;
+      if (change.focused) {
+        selectedPage = page;
+        selectedPageObservedAt = Date.now();
+      }
+      pageObservationDirty = true;
+      if (change.contentChanged && lastPageFingerprint === `${getTabRef(page)}\n${cleanString(page.url(), 2048)}`) {
+        if (pageTextCapturedFingerprint || !pageContentChangedAt) pageContentChangedAt = Date.now();
+        pageTextCapturedFingerprint = "";
+        pageTextCaptureGeneration += 1;
+        pageTextCaptureInFlight = false;
+      }
+    }).then(() => {
+      page.on("domcontentloaded", () => {
+        if (watchState.enabled) attachWatchObserver(page).catch(() => {});
+      });
+      page.on("framenavigated", (frame) => {
+        if (!watchState.enabled || frame !== page.mainFrame()) return;
+        pageObservationDirty = true;
+        if (lastPageFingerprint.startsWith(`${getTabRef(page)}\n`)) {
+          pageStableSince = Date.now();
+          pageContentChangedAt = 0;
+          pageTextCapturedFingerprint = "";
+          pageTextCaptureGeneration += 1;
+          pageTextCaptureInFlight = false;
+        }
+      });
+      page.on("close", () => {
+        watchObserverPages.delete(page);
+        pageObservationDirty = true;
+      });
+    }).catch((error) => {
+      watchObserverPages.delete(page);
+      throw error;
+    });
+    watchObserverPages.set(page, ready);
+  }
+  await watchObserverPages.get(page);
+  if (watchState.enabled) await page.evaluate(installPageWatchObserver);
+}
+
+async function startWatchObservers() {
+  const browser = await getBrowser();
+  for (const context of browser.contexts()) {
+    if (!watchObserverContexts.has(context)) {
+      watchObserverContexts.add(context);
+      context.on("page", (page) => {
+        if (watchState.enabled) attachWatchObserver(page).catch(() => {});
+      });
+    }
+  }
+  await Promise.all((await getPages()).map((page) => attachWatchObserver(page).catch(() => {})));
+  pageObservationDirty = true;
 }
 
 async function setWatchState(value) {
@@ -468,12 +561,17 @@ async function setWatchState(value) {
   resetWatchTracking();
   if (enabled) {
     try {
+      await startWatchObservers();
       const page = await pageObservation();
       lastPageFingerprint = `${page.tabRef}\n${page.url}`;
       pageStableSince = Date.now();
     } catch {
       lastPageFingerprint = "";
     }
+  } else {
+    await Promise.all([...watchObserverPages.keys()].map((page) => (
+      page.evaluate(() => globalThis.__samewindowWatchCleanup?.()).catch(() => {})
+    )));
   }
   return watchState;
 }
@@ -514,15 +612,19 @@ async function handleCursorUpdate(previous, current) {
 
 async function observeWatchState() {
   if (!watchState.enabled) return;
+  if (!browserConnection?.isConnected()) await startWatchObservers();
   const now = Date.now();
 
-  if (now - lastPageCheckAt >= 1000) {
+  const pageChangeDue = pageChangeCandidate && now - pageChangeCandidate.since >= pageChangeDwellMs;
+  if ((pageObservationDirty || pageChangeDue) && now - lastPageCheckAt >= 1000) {
+    pageObservationDirty = false;
     lastPageCheckAt = now;
     try {
       const page = await pageObservation();
       const fingerprint = `${page.tabRef}\n${page.url}`;
       if (!lastPageFingerprint) {
         pageStableSince = now;
+        pageContentChangedAt = 0;
         pageTextCapturedFingerprint = "";
       } else if (fingerprint !== lastPageFingerprint) {
         pageChangeCandidate = {
@@ -532,6 +634,7 @@ async function observeWatchState() {
           followsClick: now - lastClickAt < 2000,
         };
         pageStableSince = now;
+        pageContentChangedAt = 0;
         pageTextCapturedFingerprint = "";
         pageTextLastAttemptAt = 0;
       } else if (pageChangeCandidate?.fingerprint === fingerprint) {
@@ -564,7 +667,7 @@ async function observeWatchState() {
       }
       lastPageFingerprint = fingerprint;
     } catch {
-      // Shared Chrome may be between pages; the next interval retries.
+      pageObservationDirty = true;
     }
   }
 
@@ -572,6 +675,7 @@ async function observeWatchState() {
     lastPageFingerprint &&
     pageStableSince > 0 &&
     now - pageStableSince >= pageTextCaptureDelayMs &&
+    (!pageContentChangedAt || now - pageContentChangedAt >= pageTextCaptureDelayMs) &&
     pageTextCapturedFingerprint !== lastPageFingerprint &&
     !pageTextCaptureInFlight &&
     now - pageTextLastAttemptAt >= pageTextRetryDelayMs
@@ -616,6 +720,9 @@ function resetBrowserState() {
   refToPage = new Map();
   elementRefs = new Map();
   pageOperationLocks = new WeakMap();
+  watchObserverPages = new Map();
+  watchObserverContexts = new WeakSet();
+  pageObservationDirty = true;
 }
 
 async function getBrowser() {
@@ -804,17 +911,9 @@ async function closePage(value) {
 }
 
 async function clearElementRefs(page = null) {
-  const pages = page
-    ? [page]
-    : [...new Set([...elementRefs.values()].map((entry) => entry.page))];
   for (const [ref, entry] of elementRefs) {
     if (!page || entry.page === page) elementRefs.delete(ref);
   }
-  await Promise.all(pages.map((page) => page.evaluate(() => {
-    document.querySelectorAll("[data-samewindow-snapshot-ref]").forEach((element) => {
-      element.removeAttribute("data-samewindow-snapshot-ref");
-    });
-  }).catch(() => {})));
 }
 
 async function withPageOperationLock(page, operation) {
@@ -832,145 +931,176 @@ async function snapshotPage(value) {
   const startedAt = performance.now();
   const limit = Math.max(1, Math.min(80, Number(value.limit) || 50));
   const tabRef = cleanString(value.tabRef, 50);
-  const page = tabRef
-    ? await findPage(tabRef, false)
-    : await findObservedPage();
+  const page = tabRef ? await findPage(tabRef, false, true) : await findObservedPage();
   return withPageOperationLock(page, async () => {
     await assertPageSafe(page, "snapshot");
     await clearElementRefs(page);
     const snapshotId = `s${nextSnapshotSequence++}`;
-    const snapshot = await page.evaluate(({
-    selector,
-    limit: maxElements,
-    snapshotId: activeSnapshotId,
-    includePointerExtras,
-    }) => {
-    const clean = (input, maxLength = 220) => String(input || "").trim().replace(/\s+/g, " ").slice(0, maxLength);
-    const candidates = [];
-    const standardNodes = [...document.querySelectorAll(selector)];
-    const standardSet = new Set(standardNodes);
-    const pointerNodes = [];
-    if (includePointerExtras) {
-      for (const element of document.querySelectorAll("body *")) {
-        if (standardSet.has(element) || !(element instanceof HTMLElement || element instanceof SVGElement)) continue;
-        const rect = element.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.right <= 0 ||
-            rect.top >= window.innerHeight || rect.left >= window.innerWidth) continue;
-        const style = window.getComputedStyle(element);
-        if (element.hasAttribute("onclick") || style.cursor === "pointer") pointerNodes.push(element);
-        if (pointerNodes.length >= Math.max(maxElements * 3, 180)) break;
+    const cdp = await page.context().newCDPSession(page);
+    try {
+      const [ax, dom, summary] = await Promise.all([
+        cdp.send("Accessibility.getFullAXTree").catch(() => ({ nodes: [] })),
+        cdp.send("DOMSnapshot.captureSnapshot", {
+          computedStyles: ["display", "visibility", "opacity", "cursor"],
+        }),
+        page.evaluate(() => ({
+          title: document.title,
+          url: location.href,
+          text: document.body?.innerText || "",
+          width: window.innerWidth,
+          height: window.innerHeight,
+        })),
+      ]);
+      // Like the previous snapshot, this describes the main document. DOMSnapshot
+      // also includes open shadow roots, without inserting attributes into the page.
+      const document = dom.documents[0];
+      const { nodes, layout } = document;
+      const string = (index) => dom.strings[index] || "";
+      const rareStrings = (data) => new Map((data?.index || []).map((index, i) => [index, string(data.value[i])]));
+      const inputValues = rareStrings(nodes.inputValue);
+      const checked = new Set(nodes.inputChecked?.index || []);
+      const selected = new Set(nodes.optionSelected?.index || []);
+      const clickable = new Set(nodes.isClickable?.index || []);
+      const boxes = new Map(layout.nodeIndex.map((index, i) => [index, i]));
+      const axByBackend = new Map(ax.nodes.filter((node) => !node.ignored && node.backendDOMNodeId)
+        .map((node) => [node.backendDOMNodeId, node]));
+      const interactiveRoles = new Set([
+        "button", "link", "textbox", "searchbox", "combobox", "checkbox", "radio",
+        "switch", "slider", "spinbutton", "menuitem", "menuitemcheckbox",
+        "menuitemradio", "option", "tab", "treeitem", "listbox",
+      ]);
+      const text = nodes.nodeValue.map((value) => cleanString(string(value), 220));
+      // Accumulate small text labels in document order for DOM-only controls.
+      const children = new Map();
+      nodes.parentIndex.forEach((parent, index) => {
+        if (parent < 0) return;
+        if (!children.has(parent)) children.set(parent, []);
+        children.get(parent).push(index);
+      });
+      for (let index = nodes.nodeType.length - 1; index >= 0; index -= 1) {
+        if (nodes.nodeType[index] !== 3) {
+          text[index] = cleanString((children.get(index) || []).map((child) => text[child]).join(" "), 220);
+        }
       }
-    }
-    const nodes = [...standardNodes, ...pointerNodes];
-    for (const element of nodes) {
-      if (!(element instanceof HTMLElement || element instanceof SVGElement)) continue;
-      const rect = element.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) continue;
-      const style = window.getComputedStyle(element);
-      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) continue;
-      const inViewport = rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
-      if (!inViewport) continue;
-
-      const tag = element.tagName.toLowerCase();
-      const id = clean(element.id, 100) || null;
-      const className = clean(element.getAttribute("class"), 180) || null;
-      const role = element.getAttribute("role") || null;
-      const ariaLabel = clean(element.getAttribute("aria-label"), 180) || null;
-      const placeholder = clean(element.getAttribute("placeholder"), 180) || null;
-      const title = clean(element.getAttribute("title"), 180) || null;
-      const type = clean(element.getAttribute("type"), 60) || null;
-      const text = clean(element.innerText || element.textContent, 220) || null;
-      const href = element instanceof HTMLAnchorElement ? clean(element.href, 500) || null : null;
-      const value = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
-        ? (type === "password" ? null : clean(element.value, 220) || null)
-        : null;
-      const checked = "checked" in element ? Boolean(element.checked) : null;
-      const selected = "selected" in element ? Boolean(element.selected) : null;
-      const pressedRaw = element.getAttribute("aria-pressed");
-      const pressed = pressedRaw === "true" ? true : pressedRaw === "false" ? false : null;
-      const disabled = "disabled" in element ? Boolean(element.disabled) : element.getAttribute("aria-disabled") === "true";
-      candidates.push({
-        element,
-        tag,
-        id,
-        className,
-        clickableHint: standardSet.has(element) ? "semantic" : "pointer",
-        role,
-        name: ariaLabel || placeholder || title || text || value || id || className || null,
-        ariaLabel,
-        placeholder,
-        title,
-        type,
-        text,
-        href,
-        value,
-        checked,
-        selected,
-        pressed,
-        disabled,
-        box: {
-          x: Math.round(rect.x),
-          y: Math.round(rect.y),
-          width: Math.round(rect.width),
-          height: Math.round(rect.height),
-        },
+      const candidates = [];
+      for (let index = 0; index < nodes.nodeType.length; index += 1) {
+        if (nodes.nodeType[index] !== 1 || !boxes.has(index)) continue;
+        const layoutIndex = boxes.get(index);
+        const [left, top, width, height] = layout.bounds[layoutIndex];
+        const x = left - (document.scrollOffsetX || 0);
+        const y = top - (document.scrollOffsetY || 0);
+        if (width <= 0 || height <= 0 || x + width <= 0 || y + height <= 0 ||
+            x >= summary.width || y >= summary.height) continue;
+        const [display, visibility, opacity, cursor] = layout.styles[layoutIndex].map(string);
+        if (display === "none" || visibility === "hidden" || visibility === "collapse" || opacity === "0") continue;
+        const pairs = nodes.attributes[index] || [];
+        const attrs = {};
+        for (let i = 0; i < pairs.length; i += 2) attrs[string(pairs[i])] = string(pairs[i + 1]);
+        const backendNodeId = nodes.backendNodeId[index];
+        const axNode = axByBackend.get(backendNodeId);
+        const properties = new Map((axNode?.properties || []).map((prop) => [prop.name, prop.value.value]));
+        const tag = string(nodes.nodeName[index]).toLowerCase();
+        const role = axNode?.role?.value || attrs.role || null;
+        const semantic = axNode && (interactiveRoles.has(role) || properties.get("focusable") === true || properties.has("editable"));
+        const domControl = ["button", "input", "textarea", "select"].includes(tag) ||
+          (tag === "a" && attrs.href !== undefined) || attrs.contenteditable === "true" ||
+          interactiveRoles.has(attrs.role) || (attrs.tabindex !== undefined && attrs.tabindex !== "-1");
+        const pointer = value.includePointerExtras === true && (clickable.has(index) || cursor === "pointer");
+        if (!semantic && !domControl && !pointer) continue;
+        const type = attrs.type?.toLowerCase() || null;
+        const inputValue = type === "password" ? null : cleanString(inputValues.get(index), 220) || null;
+        const label = cleanString(axNode?.name?.value || attrs["aria-label"] || attrs.placeholder || attrs.title || text[index], 220) || null;
+        const baseURL = string(document.baseURL) || summary.url;
+        const href = tag === "a" && attrs.href
+          ? cleanString(URL.canParse(attrs.href, baseURL) ? new URL(attrs.href, baseURL).href : attrs.href, 500)
+          : null;
+        candidates.push({
+          backendNodeId,
+          source: semantic ? "accessibility" : "dom",
+          tag, role, name: label,
+          id: cleanString(attrs.id, 100) || null,
+          className: cleanString(attrs.class, 180) || null,
+          clickableHint: semantic || domControl ? "semantic" : "pointer",
+          ariaLabel: cleanString(attrs["aria-label"], 180) || null,
+          placeholder: cleanString(attrs.placeholder, 180) || null,
+          title: cleanString(attrs.title, 180) || null,
+          type, text: text[index] || null,
+          href,
+          value: inputValue,
+          checked: properties.has("checked") ? properties.get("checked") === "true" || properties.get("checked") === true : ["checkbox", "radio"].includes(type) ? checked.has(index) : null,
+          selected: properties.get("selected") ?? (tag === "option" ? selected.has(index) : null),
+          pressed: properties.has("pressed") ? properties.get("pressed") === "true" || properties.get("pressed") === true : null,
+          disabled: properties.get("disabled") === true || attrs.disabled !== undefined || attrs["aria-disabled"] === "true",
+          box: { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) },
+        });
+      }
+      // Prefer AX controls; DOM-only widgets remain available as a supplement.
+      candidates.sort((a, b) => Number(b.source === "accessibility") - Number(a.source === "accessibility"));
+      await assertPageSafe(page, "snapshot");
+      if (page.url() !== summary.url) throw new Error("page changed during snapshot; take a fresh snapshot");
+      const elements = candidates.slice(0, limit).map(({ backendNodeId, ...metadata }, index) => {
+        const ref = `${snapshotId}:e${index + 1}`;
+        elementRefs.set(ref, { page, backendNodeId, snapshotId, url: summary.url });
+        return { ref, ...metadata };
       });
-      if (candidates.length >= Math.max(maxElements * 4, 200)) break;
-    }
-
-    const elements = candidates.slice(0, maxElements).map((candidate, index) => {
-      const ref = `${activeSnapshotId}:e${index + 1}`;
-      candidate.element.setAttribute("data-samewindow-snapshot-ref", ref);
-      const { element: _element, ...metadata } = candidate;
-      return { ref, ...metadata };
-    });
-    const rawVisibleText = document.body?.innerText || "";
-    return {
-      title: clean(document.title, 200),
-      url: location.href,
-      visibleText: clean(rawVisibleText, 6000),
-      visibleTextTruncated: rawVisibleText.length > 6000,
-      elements,
-      totalCandidates: candidates.length,
-    };
-    }, {
-      selector: interactiveSelector,
-      limit,
-      snapshotId,
-      includePointerExtras: value.includePointerExtras === true,
-    });
-
-    const elements = snapshot.elements.map((element) => {
-      elementRefs.set(element.ref, {
-        page,
-        selector: `[data-samewindow-snapshot-ref="${element.ref}"]`,
+      return {
         snapshotId,
-      });
-      return element;
-    });
-    return {
-      snapshotId,
-      tabRef: getTabRef(page),
-      title: snapshot.title,
-      url: snapshot.url,
-      visibleText: snapshot.visibleText,
-      elements,
-      truncated: elements.length >= limit || snapshot.visibleTextTruncated,
-      totalCandidates: snapshot.totalCandidates,
-      timingMs: Math.round((performance.now() - startedAt) * 10) / 10,
-    };
+        tabRef: getTabRef(page),
+        title: cleanString(summary.title, 200), url: summary.url,
+        visibleText: cleanString(summary.text, 6000), elements,
+        truncated: candidates.length > elements.length || summary.text.length > 6000,
+        totalCandidates: candidates.length,
+        timingMs: Math.round((performance.now() - startedAt) * 10) / 10,
+      };
+    } finally {
+      await cdp.detach().catch(() => {});
+    }
   });
+}
+
+async function resolveNodeTarget(page, entry, ref) {
+  const cdp = await page.context().newCDPSession(page);
+  const slot = `__samewindowNodeTransfer_${randomUUID()}`;
+  let objectId;
+  let target;
+  try {
+    ({ object: { objectId } } = await cdp.send("DOM.resolveNode", { backendNodeId: entry.backendNodeId }));
+    if (!objectId) throw new Error("node no longer exists");
+    // Transfer this exact browser node to a public Playwright ElementHandle.
+    // The short-lived JS slot is removed immediately; no DOM attribute changes
+    // or text/CSS re-matching are involved. Playwright keeps its action checks.
+    const result = await cdp.send("Runtime.callFunctionOn", {
+      objectId,
+      functionDeclaration: "function (slot) { if (!this.isConnected) throw new Error('detached node'); globalThis[slot] = this; }",
+      arguments: [{ value: slot }], returnByValue: true,
+    });
+    if (result.exceptionDetails) throw new Error("node is detached");
+    const handle = await page.evaluateHandle((key) => globalThis[key], slot);
+    target = handle.asElement();
+    if (!target) { await handle.dispose(); throw new Error("node is no longer in this document"); }
+    if (!(await target.evaluate((node) => node.isConnected))) throw new Error("node is detached");
+    return target;
+  } catch (error) {
+    await target?.dispose();
+    throw browserActionError("stale_ref", `element ref ${ref} is stale; take a fresh snapshot`, {
+      reason: cleanString(error.message, 200),
+    });
+  } finally {
+    await page.evaluate((key) => { delete globalThis[key]; }, slot).catch(() => {});
+    if (objectId) await cdp.send("Runtime.releaseObject", { objectId }).catch(() => {});
+    await cdp.detach().catch(() => {});
+  }
 }
 
 async function getTarget(value, page) {
   const ref = cleanString(value.ref, 30);
   if (!ref) throw new Error("ref from a fresh snapshot is required");
   const entry = elementRefs.get(ref);
-  if (!entry || entry.page !== page) {
+  if (!entry || entry.page !== page || entry.url !== page.url()) {
     throw new Error(`element ref ${ref} is stale; take a fresh snapshot`);
   }
   await assertPageSafe(page, "browser action");
-  return { page, target: page.locator(entry.selector), ref };
+  return { page, target: await resolveNodeTarget(page, entry, ref), ref };
 }
 
 async function writeVisualCursor(x, y, click = false, durationMs = null, animate = true) {
@@ -1003,14 +1133,18 @@ async function cursorCoordinatesForTarget(page, target) {
   await target.scrollIntoViewIfNeeded({ timeout: 5000 });
   const box = await target.boundingBox();
   if (!box) throw new Error("target has no visible bounding box");
+  return cursorCoordinatesForPoint(page, box.x + box.width / 2, box.y + box.height / 2);
+}
+
+async function cursorCoordinatesForPoint(page, x, y) {
   if (cursorCoordinateMode === "page") {
     const viewport = await page.evaluate(() => ({
       width: window.innerWidth,
       height: window.innerHeight,
     }));
     return {
-      x: Math.max(0, Math.min(1, (box.x + box.width / 2) / viewport.width)),
-      y: Math.max(0, Math.min(1, (box.y + box.height / 2) / viewport.height)),
+      x: Math.max(0, Math.min(1, x / viewport.width)),
+      y: Math.max(0, Math.min(1, y / viewport.height)),
     };
   }
   const geometry = await page.evaluate(() => ({
@@ -1025,8 +1159,8 @@ async function cursorCoordinatesForTarget(page, target) {
   }));
   const sideInset = Math.max(0, (geometry.outerWidth - geometry.innerWidth) / 2);
   const topInset = Math.max(0, geometry.outerHeight - geometry.innerHeight - sideInset);
-  const screenX = geometry.screenX + sideInset + box.x + box.width / 2;
-  const screenY = geometry.screenY + topInset + box.y + box.height / 2;
+  const screenX = geometry.screenX + sideInset + x;
+  const screenY = geometry.screenY + topInset + y;
   return {
     x: Math.max(0, Math.min(1, screenX / geometry.screenWidth)),
     y: Math.max(0, Math.min(1, screenY / geometry.screenHeight)),
@@ -1051,7 +1185,12 @@ async function targetObstruction(target) {
     if (right <= left || bottom <= top) return null;
     const x = Math.max(0, Math.min(window.innerWidth - 1, (left + right) / 2));
     const y = Math.max(0, Math.min(window.innerHeight - 1, (top + bottom) / 2));
-    const receiver = document.elementFromPoint(x, y);
+    let receiver = document.elementFromPoint(x, y);
+    while (receiver?.shadowRoot) {
+      const nested = receiver.shadowRoot.elementFromPoint(x, y);
+      if (!nested || nested === receiver) break;
+      receiver = nested;
+    }
     if (!receiver || receiver === element || element.contains(receiver)) return null;
     const clean = (input, maxLength = 160) => String(input || "").trim().replace(/\s+/g, " ").slice(0, maxLength);
     return {
@@ -1099,21 +1238,25 @@ async function clickTarget(value) {
   const page = await findPage(cleanString(value.tabRef, 50), false, true);
   return withPageOperationLock(page, async () => {
     const { target, ref } = await getTarget(value, page);
-    await page.bringToFront();
-    const cursor = await cursorCoordinatesForTarget(page, target);
-    await assertTargetClickable(target, ref);
-    await writeVisualCursor(cursor.x, cursor.y, true, value.durationMs ?? 220);
-    const waitAfterMs = Math.max(0, Math.min(2000, Number(value.waitAfterMs) || 0));
-    await target.click({ timeout: 7000, noWaitAfter: waitAfterMs === 0 });
-    if (waitAfterMs > 0) await page.waitForTimeout(waitAfterMs);
-    return {
-      clicked: true,
-      ref,
-      tabRef: getTabRef(page),
-      title: cleanString(await page.title(), 200),
-      url: page.url(),
-      timingMs: Math.round((performance.now() - startedAt) * 10) / 10,
-    };
+    try {
+      await page.bringToFront();
+      const cursor = await cursorCoordinatesForTarget(page, target);
+      await assertTargetClickable(target, ref);
+      await writeVisualCursor(cursor.x, cursor.y, true, value.durationMs ?? 220);
+      const waitAfterMs = Math.max(0, Math.min(2000, Number(value.waitAfterMs) || 0));
+      await target.click({ timeout: 7000, noWaitAfter: waitAfterMs === 0 });
+      if (waitAfterMs > 0) await page.waitForTimeout(waitAfterMs);
+      return {
+        clicked: true,
+        ref,
+        tabRef: getTabRef(page),
+        title: cleanString(await page.title(), 200),
+        url: page.url(),
+        timingMs: Math.round((performance.now() - startedAt) * 10) / 10,
+      };
+    } finally {
+      await target.dispose().catch(() => {});
+    }
   });
 }
 
@@ -1144,33 +1287,37 @@ async function typeIntoTarget(value) {
   const page = await findPage(cleanString(value.tabRef, 50), false, true);
   return withPageOperationLock(page, async () => {
     const { target, ref } = await getTarget(value, page);
-    await page.bringToFront();
-    const cursor = await cursorCoordinatesForTarget(page, target);
-    await writeVisualCursor(cursor.x, cursor.y, false, value.durationMs ?? 180);
+    try {
+      await page.bringToFront();
+      const cursor = await cursorCoordinatesForTarget(page, target);
+      await writeVisualCursor(cursor.x, cursor.y, false, value.durationMs ?? 180);
 
-    const clear = value.clear !== false;
-    if (clear) {
-      try {
-        await target.fill(text, { timeout: 7000 });
-      } catch {
+      const clear = value.clear !== false;
+      if (clear) {
+        try {
+          await target.fill(text, { timeout: 7000 });
+        } catch {
+          await target.click({ timeout: 7000 });
+          await page.keyboard.press("Control+A");
+          await page.keyboard.insertText(text);
+        }
+      } else {
         await target.click({ timeout: 7000 });
-        await page.keyboard.press("Control+A");
         await page.keyboard.insertText(text);
       }
-    } else {
-      await target.click({ timeout: 7000 });
-      await page.keyboard.insertText(text);
+      if (value.submit === true) await page.keyboard.press("Enter");
+      return {
+        typed: true,
+        typedChars: text.length,
+        submitted: value.submit === true,
+        ref,
+        tabRef: getTabRef(page),
+        title: cleanString(await page.title(), 200),
+        url: page.url(),
+      };
+    } finally {
+      await target.dispose().catch(() => {});
     }
-    if (value.submit === true) await page.keyboard.press("Enter");
-    return {
-      typed: true,
-      typedChars: text.length,
-      submitted: value.submit === true,
-      ref,
-      tabRef: getTabRef(page),
-      title: cleanString(await page.title(), 200),
-      url: page.url(),
-    };
   });
 }
 
@@ -1231,8 +1378,43 @@ async function browserStatus() {
   };
 }
 
+const readSocial = createSocialReader({
+  getPages, getBrowser, getTabRef, assertSafe: assertPageSafe,
+  select: async (page) => {
+    selectedPage = page;
+    selectedPageObservedAt = Date.now();
+    pageObservationDirty = true;
+    await page.bringToFront();
+  },
+  click: async (page, target) => {
+    await assertPageSafe(page, "social click");
+    const cursor = await cursorCoordinatesForTarget(page, target);
+    await assertTargetClickable(target, "social post");
+    await writeVisualCursor(cursor.x, cursor.y, true, 220);
+    await target.click({ timeout: 7000, noWaitAfter: true });
+  },
+  scroll: async (page, selector) => {
+    await assertPageSafe(page, "social scroll");
+    const target = selector ? page.locator(selector).filter({ visible: true }).first() : null;
+    const box = target && await target.count() ? await target.boundingBox() : null;
+    const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    const x = box ? box.x + box.width / 2 : viewport.width * 0.55;
+    const y = box ? box.y + box.height / 2 : viewport.height * 0.65;
+    await page.mouse.move(x, y);
+    const cursor = await cursorCoordinatesForPoint(page, x, y);
+    await writeVisualCursor(cursor.x, cursor.y, false, 120);
+    await page.mouse.wheel(0, 600);
+  },
+});
+
 async function routeRequest(request, response, origin) {
   const requestUrl = new URL(request.url ?? "/", `http://${host}:${port}`);
+
+  if (request.method === "POST" && ["/browser/social/feed", "/browser/social/read"].includes(requestUrl.pathname)) {
+    const action = requestUrl.pathname.split("/").at(-1);
+    sendJson(response, 200, await readSocial(action, await readJsonBody(request)), origin);
+    return;
+  }
 
   if (request.method === "GET" && requestUrl.pathname === "/health") {
     sendJson(response, 200, { ok: true, service: "samewindow-control" }, origin);
@@ -1395,6 +1577,9 @@ server.listen(port, host, () => {
   console.log(`SameWindow control listening on http://${host}:${port}`);
 });
 
-setInterval(() => {
-  observeWatchState().catch(() => {});
+setInterval(async () => {
+  if (watchObservationInFlight) return;
+  watchObservationInFlight = true;
+  try { await observeWatchState(); } catch {}
+  finally { watchObservationInFlight = false; }
 }, 250).unref();

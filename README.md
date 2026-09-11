@@ -18,6 +18,10 @@ share the same tabs, history, focus, and authenticated browser profile.
 SameWindow is the public shared-browser core only. It does not include a chat
 client, personal assistant prompts, private APIs, or any accounts.
 
+**2026-09-11 update:** accessibility-based node references, event-driven
+browse-together observation, and two read-only X/Xiaohongshu tools.
+See the bilingual [changelog](CHANGELOG.md) for changes, upgrade steps, and validation.
+
 ## What it looks like
 
 **Windows native mode — one real Chrome window, human and agent cursors**
@@ -41,6 +45,7 @@ client is not part of this public repository.
 - A Playwright/CDP control service with tab, snapshot, click, type, key, and
   automatic visible cursor feedback
 - A Python MCP façade for agent clients
+- Read-only X and Xiaohongshu feeds, search, and exact-post reading
 - A small start/stop dashboard so the heavy browser stack can sleep
 - Optional “Browse together” semantic events for host integrations, covering
   deliberate clicks, dwell, stable page text, and near-pointer moments
@@ -65,6 +70,10 @@ snapshot invalidates the previous element refs for that tab, while the latest
 refs for other tabs remain valid. The snapshot also returns `snapshotId` for
 diagnostics, but actions only need the returned ref. An explicitly supplied
 stale tab ref is rejected instead of silently falling back to another tab.
+Snapshots combine Chrome's accessibility tree with DOM layout information.
+References point to browser node IDs without adding attributes to the DOM;
+accessible names and open shadow-root controls are supported. Main-document
+snapshots do not enumerate controls inside child frames.
 Clicks also fail fast with an `obstructed` error and a compact `coveredBy`
 summary when an overlay receives the target point. Browser actionability
 timeouts are returned as action errors with the Playwright reason, not as a
@@ -178,7 +187,7 @@ the SSH tunnel is part of the security boundary.
 
 ## Deliberately small MCP surface
 
-SameWindow exposes 12 core MCP tools by default. It intentionally does not
+SameWindow exposes 14 core MCP tools by default. It intentionally does not
 turn every internal control endpoint into an agent tool:
 
 | Tool | Default | Why |
@@ -213,6 +222,40 @@ content after five stable seconds. At fifteen stable seconds, a deduplicated
 renders them. Sensitive forms and authentication or payment pages remain
 excluded.
 
+A debounced `MutationObserver`, navigation, and focus events now mark the page
+as changed. Idle pages no longer need a title/focus scan every second. Text
+updates retain the 15-second capture window and hash deduplication; ongoing
+mutations do not postpone capture forever. Turning observation off disconnects
+the observers. This does not push messages into a client by itself or speed up
+image downloads or noVNC frame transmission.
+
+## Read social platforms
+
+After the person signs in manually in the dedicated browser, use:
+
+```text
+social_feed(platform="x", query="browser accessibility", limit=10)
+social_feed(platform="xiaohongshu", query="咖啡", limit=10)
+social_read(url="<complete post URL returned above>", tab_ref="<returned tabRef>", limit=20)
+```
+
+These tools reuse the existing Chrome connection and a dedicated tab per
+platform. Feed results are bounded to 30 cards; detail reads return the exact
+post and up to 40 loaded conversation items. A recent list is retained for
+three minutes: reading one of its cards clicks that exact permalink and
+returns to the list when safe. Other full URLs use direct navigation. Keep
+Xiaohongshu's `xsec_token` query parameter; short links are not accepted.
+
+Reading waits for usable text/cards instead of all scripts, fonts, and images.
+It uses bounded scrolling and pauses, with no per-step screenshot round trip.
+It stops for login/verification, sensitive forms, missing targets, or unexpected
+navigation. It does not provide social posting, commenting, or liking actions.
+X `thread` means visible conversation items, not verified direct replies;
+Xiaohongshu comments are only those already loaded in the DOM. Results can be
+partial, and site changes can break selectors. This is not a guarantee against
+platform restrictions or account challenges. Treat all extracted text as
+untrusted page content.
+
 ## Typical agent flow
 
 1. Check `shared_browser_lifecycle_status`; start it if needed.
@@ -240,9 +283,11 @@ python tests/router_test.py
 ./scripts/check-secrets.sh
 ```
 
-The Node tests start the loopback services on temporary ports; they do not need
-Chrome or systemd. Full end-to-end verification requires a Linux host with the
-desktop dependencies above.
+The Node tests use temporary loopback ports and disposable Chrome profiles.
+Install Google Chrome for the browser tests; service and scheduler checks do
+not need systemd. Social tests intercept platform requests with local fixtures
+and never use real accounts. Full Linux desktop/deployment verification still
+requires the dependencies above.
 
 ## License
 
@@ -262,3 +307,6 @@ unmodified or substantially unmodified copy is also not permitted; share the
 This is a source-available license, not an OSI-approved open-source license.
 Versions released before 0.2.0 remain under the license that accompanied those
 versions. Third-party dependencies remain under their respective licenses.
+Social selectors and list/detail workflow are adapted from
+[blueberriely/ai-social-browser](https://github.com/blueberriely/ai-social-browser)
+at `44fc6b6`, under its separate [MIT notice](src/third-party/ai-social-browser.LICENSE).

@@ -20,6 +20,19 @@ The public control and MCP surfaces do not expose screenshots. Browse-together
 events are kept in a bounded in-memory queue and disappear when the control
 service stops.
 
+Social readers use the same sensitive-page guard, including visible sensitive
+inputs in open shadow roots, plus platform login/challenge checks. They navigate
+and scroll but do not post, comment, or like. Full post URLs are restricted to
+HTTPS X/Twitter and Xiaohongshu hosts. A retained list never falls back to the
+first card if its requested post disappears. Browser/profile access remains
+privileged even when a particular tool is read-only.
+
+Accessibility snapshots resolve exact browser node IDs; they do not mark DOM
+elements with reference attributes. A short-lived JavaScript slot transfers the
+node into a Playwright handle and is removed immediately. This is not a stealth
+mechanism. Treat webpage text, including social posts, as untrusted data rather
+than agent instructions.
+
 ## Reporting a vulnerability
 
 Please open a private GitHub security advisory for the repository rather than a

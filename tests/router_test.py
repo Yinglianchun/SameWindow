@@ -146,6 +146,24 @@ class SplitRouterTest(unittest.TestCase):
             "local:e1",
         )
 
+    def test_social_read_preserves_backend_lease_and_extended_timeout(self) -> None:
+        with (
+            mock.patch.object(samewindow, "_targets", return_value=[LOCAL, VPS]),
+            mock.patch.object(samewindow, "_snapshot", return_value=snapshot("running", "running")),
+            mock.patch.object(samewindow, "_json_request", return_value={
+                "ok": True, "tabRef": "tab-2", "items": [],
+            }) as request,
+        ):
+            result = samewindow.social_feed("x", limit=100, tab_ref="vps:tab-2")
+            self.assertEqual(request.call_args.args, (VPS["control"], "/browser/social/feed"))
+            self.assertEqual(request.call_args.kwargs["timeout"], 60)
+            self.assertEqual(request.call_args.kwargs["payload"]["tabRef"], "tab-2")
+            self.assertEqual(request.call_args.kwargs["payload"]["limit"], 30)
+            self.assertEqual(result["tabRef"], "vps:tab-2")
+            samewindow.social_read("https://x.com/example/status/123", limit=100)
+            self.assertEqual(request.call_args.args[0], VPS["control"])
+            self.assertEqual(request.call_args.kwargs["payload"]["limit"], 40)
+
     def test_structured_control_error_keeps_real_reason(self) -> None:
         body = json.dumps(
             {
