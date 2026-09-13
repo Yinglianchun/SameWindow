@@ -18,8 +18,10 @@ share the same tabs, history, focus, and authenticated browser profile.
 SameWindow is the public shared-browser core only. It does not include a chat
 client, personal assistant prompts, private APIs, or any accounts.
 
-**2026-09-11 update:** accessibility-based node references, event-driven
-browse-together observation, and two read-only X/Xiaohongshu tools.
+**2026-09-13 fix:** Xiaohongshu reading now skips hidden duplicate links and
+prefers the visible cover, fixing the five-second scroll timeout.
+The September 11 update added accessibility-based references, event-driven
+observation, and read-only X/Xiaohongshu tools.
 See the bilingual [changelog](CHANGELOG.md) for changes, upgrade steps, and validation.
 
 ## What it looks like

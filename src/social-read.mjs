@@ -59,7 +59,12 @@ export function extractSocial({ platform, detail = false }) {
   }
   if (!detail) {
     return [...document.querySelectorAll("section.note-item")].filter(visible).flatMap(card => {
-      const cover = card.querySelector('a.cover[href], a[href*="/explore/"], a[href*="/search_result/"]');
+      // Selector lists use DOM order, not selector priority. XHS places a hidden,
+      // tokenless permalink before the actual cover; prefer a rendered cover.
+      const renderedLink = el => visible(el) && [...el.getClientRects()].some(rect => rect.width > 0 && rect.height > 0);
+      const cover = [...card.querySelectorAll('a.cover[href]')].find(renderedLink)
+        || [...card.querySelectorAll('a[href*="/explore/"], a[href*="/search_result/"], a[href*="/discovery/item/"]')].find(renderedLink);
+      if (!cover) return [];
       const url = link(cover);
       const id = url.match(/\/(?:explore|search_result|discovery\/item)\/([a-f0-9]{24})/i)?.[1]?.toLowerCase();
       if (!id || !["www.xiaohongshu.com", "xiaohongshu.com"].includes(new URL(url).hostname)) return [];
@@ -208,22 +213,33 @@ export function createSocialReader({ getPages, getBrowser, getTabRef, select, cl
     // Compare parsed permanent IDs, not arbitrary substring matches or the first article.
     const locate = async () => {
       const handles = await root.elementHandles();
-      for (const handle of handles) {
-        const selector = target.platform === "x" ? 'time' : 'a.cover[href], a[href*="/explore/"], a[href*="/search_result/"]';
-        const links = await handle.$$(selector);
-        for (const node of links) {
-          const href = await node.evaluate(el => (el.matches("time") ? el.closest("a") : el)?.href || "");
-          if (samePost(href, target)) {
-            const anchor = await node.evaluateHandle(el => el.matches("time") ? el.closest("a") : el);
-            await Promise.all(links.map(link => link.dispose()));
-            await Promise.all(handles.map(card => card.dispose()));
-            return anchor.asElement();
+      try {
+        for (const handle of handles) {
+          if (!(await handle.isVisible())) continue;
+          const selectors = target.platform === "x" ? ['time'] : [
+            'a.cover[href]',
+            'a[href*="/explore/"], a[href*="/search_result/"], a[href*="/discovery/item/"]',
+          ];
+          for (const selector of selectors) {
+            const links = await handle.$$(selector);
+            try {
+              for (const node of links) {
+                const href = await node.evaluate(el => (el.matches("time") ? el.closest("a") : el)?.href || "");
+                if (!samePost(href, target)) continue;
+                const anchor = await node.evaluateHandle(el => el.matches("time") ? el.closest("a") : el);
+                const element = anchor.asElement();
+                if (element && await element.isVisible()) return element;
+                await anchor.dispose();
+              }
+            } finally {
+              await Promise.all(links.map(link => link.dispose()));
+            }
           }
         }
-        await Promise.all(links.map(link => link.dispose()));
+        return null;
+      } finally {
+        await Promise.all(handles.map(card => card.dispose()));
       }
-      await Promise.all(handles.map(card => card.dispose()));
-      return null;
     };
     let card = await locate();
     if (card) return card;

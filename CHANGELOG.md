@@ -1,5 +1,25 @@
 # Changelog / 更新日志
 
+## 2026-09-13 — Xiaohongshu hidden-link fix / 小红书隐藏链接修复
+
+小红书在可见封面前放了一条隐藏、无 `xsec_token` 的帖子链接。原来的逗号选择器按 DOM 顺序命中了它，导致 `social_read` 在进入详情前报 `scrollIntoViewIfNeeded` 5 秒超时；列表也可能丢失签名参数和封面图。
+
+现在读列表和找点击目标都优先选择可见封面，跳过隐藏卡片、隐藏链接和零尺寸链接；封面不可用时允许点同一帖子的可见标题／链接。保留准确帖子 ID 核对和 Playwright 可点击检查，不强制点击、不改点其他帖子。
+
+新增回归用例覆盖隐藏副本、标题回退、屏幕外卡片、无正文图片帖及“只剩隐藏目标”的拒绝行为；X 阅读和公开版敏感表单拦截也通过了回归。相同修复模块在德国浏览器的真实小红书上完成了列表 → 指定卡片 → 正文／图片 → 返回列表，测试期间“一起逛”关闭。
+
+Xiaohongshu places a hidden, tokenless permalink before its visible cover.
+Selector lists follow DOM order, so the old code could lose the signed URL and
+cover image, then time out for five seconds while trying to scroll that hidden
+link into view. Feed extraction and card lookup now prefer rendered covers,
+skip hidden/zero-size links and hidden duplicate cards, and fall back to a
+visible title/permalink for the exact post. Normal click checks remain in place.
+
+Regression fixtures cover duplicates, title fallback, offscreen image-only
+posts, hidden-only target rejection, X reading, and public sensitive-form guards.
+The same fix was also exercised against real Xiaohongshu in the Germany browser:
+list → exact card → matching text/images → list, with browse together off.
+
 ## 2026-09-11 — Browser reading and observation / 页面读取与观察
 
 ### 中文

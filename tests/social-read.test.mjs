@@ -26,8 +26,12 @@ const noteA = "aaaaaaaaaaaaaaaaaaaaaaaa", noteB = "bbbbbbbbbbbbbbbbbbbbbbbb";
 const xTweet = (id, body = `post ${id}`, extra = "") => `<article data-testid="tweet"><div data-testid="User-Name">Example\n@example</div>
   <a href="https://x.com/example/status/${id}"><time datetime="2026-09-11">today</time></a>
   <div data-testid="tweetText">${body}</div><button data-testid="like" onclick="fetch('/forbidden-write',{method:'POST'})">1</button>${extra}</article>`;
-const xhsCard = (id, title) => `<section class="note-item"><a class="cover" href="https://www.xiaohongshu.com/explore/${id}?xsec_token=KEEP_ME&xsec_source=pc_feed">cover</a>
-  <a class="title">${title}</a><div class="author"><span class="name">Example</span></div></section>`;
+const xhsCard = (id, title) => `<section class="note-item">
+  <a href="https://www.xiaohongshu.com/explore/${id}" style="display:none"></a>
+  <a href="https://www.xiaohongshu.com/explore/${id}" style="visibility:hidden">hidden duplicate</a>
+  <a href="https://www.xiaohongshu.com/explore/${id}" style="display:block;width:0;height:0;overflow:hidden"></a>
+  <a class="cover" href="https://www.xiaohongshu.com/explore/${id}?xsec_token=KEEP_ME&xsec_source=pc_feed"><img src="https://example.test/cover.png" alt="cover"></a>
+  <a class="title" href="https://www.xiaohongshu.com/explore/${id}?xsec_token=KEEP_ME&xsec_source=pc_feed">${title}</a><div class="author"><span class="name">Example</span></div></section>`;
 const html = body => `<!doctype html><html><head><title>Social fixture</title><style>article,section{display:block;min-height:150px} .comments-container{height:180px;overflow:auto}</style></head><body>${body}</body></html>`;
 async function api(action, payload) {
   const r = await fetch(`http://127.0.0.1:${controlPort}/browser/${action}`, {
@@ -59,10 +63,11 @@ try {
       else if (url.pathname === "/home" || url.pathname === "/search") body = xTweet(100) + xTweet(200, "post 200", '<div data-testid="tweetText">quoted post</div>');
       else body = xTweet(mismatch ? 999 : url.pathname.split("/").at(-1), "EXACT TARGET") + xTweet(300, "visible reply");
     } else if (url.hostname === "www.xiaohongshu.com") {
-      if (url.pathname === "/explore" || url.pathname === "/search_result") body = xhsCard(noteA, "A note") + xhsCard(noteB, "B note");
+      if (url.pathname === "/explore" || url.pathname === "/search_result") body = xhsCard(noteA, "Hidden card").replace('class="note-item"', 'class="note-item" style="display:none"') + xhsCard(noteA, "A note") + xhsCard(noteB, "B note");
       else body = `<div class="note-detail-mask"><div id="detail-title">Example note</div><div id="detail-desc">NOTE BODY</div>
         <div class="comments-container"><div class="parent-comment" data-id="c1"><span class="name">SameWindow</span><div class="content">first comment</div>
         <div class="reply-container"><div class="comment-item-sub" data-id="c2"><span class="name">Example</span><div class="content">nested reply</div></div></div></div></div></div>`;
+      if (url.pathname.endsWith(noteB)) body = body.replace('<div id="detail-desc">NOTE BODY</div>', '<div class="media-container"><img src="https://example.test/note.png"></div>');
     } else body = "UNRELATED HUMAN TAB";
     if (url.searchParams.get("q") === "slow-resource" || (slowDetail && url.pathname.includes("/status/"))) body += '<script src="/slow.js"></script>';
     await route.fulfill({ status: 200, contentType: "text/html", body: html(body) });
@@ -95,12 +100,30 @@ try {
   console.log("PASS X: batch, same-list reuse, exact-card click, thread, back navigation, visible cursor, unrelated tab intact");
 
   const xhs = await api("social/feed", { platform: "xiaohongshu", limit: 2 });
-  assert.equal(xhs.ok, true, JSON.stringify(xhs)); assert.equal(xhs.items[0].url.includes("xsec_token=KEEP_ME"), true);
+  assert.equal(xhs.ok, true, JSON.stringify(xhs));
   const note = await api("social/read", { url: xhs.items[0].url, tabRef: xhs.tabRef, limit: 2 });
   assert.equal(note.ok, true, JSON.stringify(note)); assert.equal(note.post.text, "NOTE BODY");
+  assert.equal(xhs.items[0].url.includes("xsec_token=KEEP_ME"), true);
+  assert.deepEqual(xhs.items[0].images, ["https://example.test/cover.png"]);
   assert.deepEqual(note.comments.map(c => c.text), ["first comment", "nested reply"]);
   assert.equal(note.comments[1].isReply, true); assert.equal(note.returnedToList, true);
   console.log("PASS Xiaohongshu: complete token URL, exact note, nested comments, list restored");
+
+  const xhsPage = context.pages().find(p => p.url() === "https://www.xiaohongshu.com/explore");
+  await xhsPage.locator(`section.note-item:visible a.cover[href*="${noteA}"]`).evaluate(el => { el.style.display = "none"; });
+  const titleFallback = await api("social/read", { url: xhs.items[0].url, tabRef: xhs.tabRef, limit: 2 });
+  assert.equal(titleFallback.ok, true, JSON.stringify(titleFallback));
+  assert.equal(titleFallback.post.id, noteA); assert.equal(titleFallback.returnedToList, true);
+  await xhsPage.locator(`section.note-item:visible`).filter({ has: xhsPage.locator(`a[href*="${noteB}"]`) }).evaluate(el => { el.style.marginTop = "1800px"; });
+  const imageOnly = await api("social/read", { url: xhs.items[1].url, tabRef: xhs.tabRef, limit: 2 });
+  assert.equal(imageOnly.ok, true, JSON.stringify(imageOnly)); assert.equal(imageOnly.post.text, "");
+  assert.deepEqual(imageOnly.post.images, ["https://example.test/note.png"]);
+  assert.equal(imageOnly.post.id, noteB); assert.equal(imageOnly.returnedToList, true);
+  await xhsPage.locator(`section.note-item a[href*="${noteA}"]`).evaluateAll(links => links.forEach(el => { el.style.display = "none"; }));
+  const hiddenOnly = await api("social/read", { url: xhs.items[0].url, tabRef: xhs.tabRef, limit: 1 });
+  assert.equal(hiddenOnly.code, "target_not_found", JSON.stringify(hiddenOnly));
+  assert.equal(xhsPage.url(), "https://www.xiaohongshu.com/explore");
+  console.log("PASS Xiaohongshu regression: hidden duplicate cards/links, zero-size links, title fallback, offscreen image-only post, and hidden-only target rejection");
 
   const xpage = context.pages().find(p => p.url() === "https://x.com/home");
   await xpage.locator('article[data-testid="tweet"]').nth(1).evaluate(el => el.remove());
