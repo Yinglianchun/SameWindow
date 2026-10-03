@@ -81,6 +81,7 @@ try {
   const source = await readFile(new URL("../src/control-server.mjs", import.meta.url), "utf8");
   const controllerFile = join(directory, "cursor-channel.mjs");
   await copyFile(new URL("../src/social-read.mjs", import.meta.url), join(directory, "social-read.mjs"));
+  for (const file of ["browser-reflex.mjs", "browser-tasks.mjs", "task-controller.mjs"]) await copyFile(new URL(`../src/${file}`, import.meta.url), join(directory, file));
   await writeFile(controllerFile, source.replace('import { chromium } from "playwright-core";', `import playwright from ${JSON.stringify(pathToFileURL(require.resolve("playwright-core")).href)}; const { chromium } = playwright;`));
   controller = spawn(process.execPath, [controllerFile], {
     env: { ...process.env, SAMEWINDOW_CONTROL_PORT: String(controlPort),

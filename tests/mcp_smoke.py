@@ -44,9 +44,11 @@ REMOVED_TOOLS = {
 }
 
 
-async def list_tool_names(*, browse_together: bool) -> set[str]:
+async def list_tool_names(*, browse_together: bool, tasks: bool = False, compact: bool = False) -> set[str]:
     environment = dict(os.environ)
     environment["SAMEWINDOW_ENABLE_BROWSE_TOGETHER_MCP"] = "1" if browse_together else "0"
+    environment["SAMEWINDOW_ENABLE_TASKS"] = "1" if tasks else "0"
+    environment["SAMEWINDOW_COMPACT_TOOLS"] = "1" if compact else "0"
     parameters = StdioServerParameters(
         command=sys.executable,
         args=[str(ROOT / "src" / "mcp_server.py"), "--transport", "stdio"],
@@ -82,9 +84,18 @@ async def main() -> None:
     if exposed_removed:
         raise SystemExit(f"Removed tools are still exposed: {sorted(exposed_removed)}")
 
+    task_names = await list_tool_names(browse_together=False, tasks=True)
+    assert task_names == CORE_TOOLS | {"shared_browser_task"}, task_names
+    compact_names = await list_tool_names(browse_together=False, tasks=True, compact=True)
+    hidden = {"shared_browser_select", "shared_browser_close", "shared_browser_click",
+              "shared_browser_type", "shared_browser_press", "social_feed", "social_read"}
+    assert compact_names == (CORE_TOOLS - hidden) | {"shared_browser_task"}, compact_names
+    together_compact = await list_tool_names(browse_together=True, tasks=True, compact=True)
+    assert together_compact == compact_names | OPTIONAL_BROWSE_TOGETHER_TOOLS, together_compact
+
     print(
         f"MCP handshake passed with {len(default_names)} default tools "
-        f"and {len(optional_names)} opt-in tools."
+        f"and {len(optional_names)} browse-together tools; {len(task_names)} task-enabled, {len(compact_names)} compact tools."
     )
 
 

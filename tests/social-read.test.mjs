@@ -75,6 +75,7 @@ try {
   const human = context.pages()[0]; await human.goto("https://example.test/keep");
   const source = await readFile(new URL("../src/control-server.mjs", import.meta.url), "utf8");
   await copyFile(new URL("../src/social-read.mjs", import.meta.url), join(directory, "social-read.mjs"));
+  for (const file of ["browser-reflex.mjs", "browser-tasks.mjs", "task-controller.mjs"]) await copyFile(new URL(`../src/${file}`, import.meta.url), join(directory, file));
   await writeFile(join(directory, "cursor-channel.mjs"), source.replace('import { chromium } from "playwright-core";',
     `import playwright from ${JSON.stringify(pathToFileURL(require.resolve("playwright-core")).href)}; const { chromium } = playwright;`));
   controller = spawn(process.execPath, [join(directory, "cursor-channel.mjs")], {

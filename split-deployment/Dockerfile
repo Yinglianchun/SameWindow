@@ -24,6 +24,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY src/control-server.mjs ./
 COPY src/social-read.mjs ./
+COPY src/browser-reflex.mjs src/browser-tasks.mjs src/task-controller.mjs ./
 COPY src/third-party/ ./third-party/
 COPY split-deployment/start-desktop.sh ./
 RUN chmod +x start-desktop.sh

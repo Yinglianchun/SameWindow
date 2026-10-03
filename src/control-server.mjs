@@ -4,6 +4,7 @@ import { writeFile } from "node:fs/promises";
 
 import { chromium } from "playwright-core";
 import { createSocialReader } from "./social-read.mjs";
+import { createTaskController } from "./task-controller.mjs";
 
 
 const host = process.env.SAMEWINDOW_CONTROL_HOST || "127.0.0.1";
@@ -768,6 +769,7 @@ async function findPage(tabRef = "", bringToFront = false, strict = false) {
 async function findObservedPage() {
   const pages = await getPages();
   for (const page of pages) getTabRef(page);
+  if (taskController.active() && selectedPage && !selectedPage.isClosed() && pages.includes(selectedPage)) return selectedPage;
   if (
     selectedPage
     && !selectedPage.isClosed()
@@ -846,6 +848,7 @@ async function observeNativeTab(value) {
   if (!match) {
     throw new Error(`observed Chrome tab was not found: ${title || addressHint || "unknown"}`);
   }
+  if (selectedPage !== match.page) taskController.interrupt();
   selectedPage = match.page;
   selectedPageObservedAt = Date.now();
   return pageGeometry(match.page);
@@ -1243,14 +1246,15 @@ async function clickTarget(value) {
       const cursor = await cursorCoordinatesForTarget(page, target);
       await assertTargetClickable(target, ref);
       await writeVisualCursor(cursor.x, cursor.y, true, value.durationMs ?? 220);
+      if (typeof value.reflexGuard === "function") await value.reflexGuard();
       const waitAfterMs = Math.max(0, Math.min(2000, Number(value.waitAfterMs) || 0));
-      await target.click({ timeout: 7000, noWaitAfter: waitAfterMs === 0 });
+      await target.click({ timeout: typeof value.reflexGuard === "function" ? value.reflexTimeoutMs ?? 7000 : 7000, noWaitAfter: waitAfterMs === 0 });
       if (waitAfterMs > 0) await page.waitForTimeout(waitAfterMs);
       return {
         clicked: true,
         ref,
         tabRef: getTabRef(page),
-        title: cleanString(await page.title(), 200),
+        title: typeof value.reflexGuard === "function" ? "" : cleanString(await page.title(), 200),
         url: page.url(),
         timingMs: Math.round((performance.now() - startedAt) * 10) / 10,
       };
@@ -1268,6 +1272,7 @@ async function pressKey(value) {
   const startedAt = performance.now();
   const page = await findPage(cleanString(value.tabRef, 50), true);
   await assertPageSafe(page, "keypress");
+  if (typeof value.reflexGuard === "function") await value.reflexGuard();
   await page.keyboard.press(key);
   const waitAfterMs = Math.max(0, Math.min(2000, Number(value.waitAfterMs) || 0));
   if (waitAfterMs > 0) await page.waitForTimeout(waitAfterMs);
@@ -1275,7 +1280,7 @@ async function pressKey(value) {
     pressed: true,
     key,
     tabRef: getTabRef(page),
-    title: cleanString(await page.title(), 200),
+    title: typeof value.reflexGuard === "function" ? "" : cleanString(await page.title(), 200),
     url: page.url(),
     timingMs: Math.round((performance.now() - startedAt) * 10) / 10,
   };
@@ -1291,6 +1296,13 @@ async function typeIntoTarget(value) {
       await page.bringToFront();
       const cursor = await cursorCoordinatesForTarget(page, target);
       await writeVisualCursor(cursor.x, cursor.y, false, value.durationMs ?? 180);
+
+      if (typeof value.reflexGuard === "function") {
+        await value.reflexGuard();
+        await target.fill(text, { timeout: value.reflexTimeoutMs ?? 7000 });
+        return { typed: true, typedChars: text.length, submitted: false, ref,
+          tabRef: getTabRef(page), url: page.url() };
+      }
 
       const clear = value.clear !== false;
       if (clear) {
@@ -1407,8 +1419,32 @@ const readSocial = createSocialReader({
   },
 });
 
+const taskController = createTaskController({
+  page: async tabRef => {
+    if (tabRef) return findPage(cleanString(tabRef, 50), false, true);
+    const pages = await getPages();
+    const page = pages.find(p => new URL(p.url()).origin === "https://x.com");
+    return page ? findPage(getTabRef(page), false, true) : null;
+  },
+  ref: getTabRef, safe: assertPageSafe, select: selectPage,
+  selected: () => selectedPage, connected: () => browserConnection?.isConnected(),
+  browser: () => browserConnection,
+  cursor: () => ({ cursor: cursorState, staleMs: cursorState.receivedAt ? Date.now() - cursorState.receivedAt : null }),
+  snapshot: snapshotPage, open: openPage, click: clickTarget, type: typeIntoTarget, press: pressKey,
+});
+
 async function routeRequest(request, response, origin) {
   const requestUrl = new URL(request.url ?? "/", `http://${host}:${port}`);
+  if (request.method === "POST" && requestUrl.pathname === "/browser/task") {
+    const cancellation = new AbortController();
+    const cancel = () => { if (!response.writableEnded) cancellation.abort(); };
+    response.once("close", cancel);
+    try { sendJson(response, 200, { ok: true, task: await taskController.run(await readJsonBody(request), cancellation.signal) }, origin); }
+    finally { response.removeListener("close", cancel); }
+    return;
+  }
+  if (request.method === "POST" && ["/browser/open", "/browser/select", "/browser/close", "/browser/shutdown",
+    "/browser/snapshot", "/browser/click", "/browser/type", "/browser/press", "/browser/social/feed", "/browser/social/read"].includes(requestUrl.pathname)) taskController.interrupt();
 
   if (request.method === "POST" && ["/browser/social/feed", "/browser/social/read"].includes(requestUrl.pathname)) {
     const action = requestUrl.pathname.split("/").at(-1);
@@ -1436,6 +1472,7 @@ async function routeRequest(request, response, origin) {
   if (request.method === "POST" && requestUrl.pathname === "/user-cursor") {
     const previous = cursorState;
     cursorState = validateCursorState(await readJsonBody(request));
+    if (cursorState.inside && (previous?.buttons || 0) === 0 && cursorState.buttons > 0) taskController.interrupt();
     await handleCursorUpdate(previous, cursorState);
     sendJson(response, 200, { ok: true }, origin);
     return;

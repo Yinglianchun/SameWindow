@@ -60,10 +60,15 @@ test("control service is healthy and rejects untrusted browser origins", async (
   try {
     await withService("src/control-server.mjs", {
       SAMEWINDOW_CONTROL_PORT: String(port),
+      SAMEWINDOW_TASK_MODE: "off",
       SAMEWINDOW_CURSOR_STATE_FILE: path.join(temporary, "cursor-state.json"),
     }, async () => {
       const health = await waitFor(`http://127.0.0.1:${port}/health`);
       assert.deepEqual(await health.json(), { ok: true, service: "samewindow-control" });
+      const task = await fetch(`http://127.0.0.1:${port}/browser/task`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({operation: "x_search", text: "rain"}),
+      });
+      assert.deepEqual(await task.json(), { ok: true, task: { status: "blocked", stopReason: "task_off" } });
 
       const rejected = await fetch(`http://127.0.0.1:${port}/health`, {
         headers: { Origin: "https://untrusted.example" },
