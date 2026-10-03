@@ -75,4 +75,3 @@ test('Jev accepts only validated receipts from the fixed endpoint', async () => 
     await assert.rejects(jevDecision({}, candidates, undefined, 'fixture-key'), /jev_http_401/);
   } finally { globalThis.fetch = originalFetch; }
 });
-
