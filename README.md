@@ -193,6 +193,12 @@ the SSH tunnel is part of the security boundary.
 
 ## Deliberately small MCP surface
 
+Optional [quick browser tasks](docs/quick-tasks.md) let Jev choose several bounded
+X navigation actions in one `shared_browser_task` call, then return a real page
+snapshot and timing. This is disabled by default. Existing 14-tool registration
+stays compatible; explicit task/compact settings expose 15 or 8 tools respectively.
+Credentials belong on the browser-controller host, including in split mode.
+
 SameWindow exposes 14 core MCP tools by default. It intentionally does not
 turn every internal control endpoint into an agent tool:
 

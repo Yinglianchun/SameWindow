@@ -1,5 +1,16 @@
 # Changelog / 更新日志
 
+## Unreleased — Optional quick tasks / 可选快速浏览任务
+
+Add opt-in `shared_browser_task` for bounded X search and exact-nickname profile/
+pinned-post navigation with Jev action choices, host verification, a real DOM
+snapshot and timing. Default registrations and provider calls stay unchanged/off.
+Task-enabled full/compact MCP modes expose 15/8 tools; legacy implementations remain.
+Controller-side credentials and privacy/upgrade instructions: [quick tasks](docs/quick-tasks.md).
+
+新增默认关闭的快速任务：连续搜索、按准确昵称找到主页并查看置顶，到达后返回真实页面。
+保留敏感页面、快照引用和用户接手检查；默认工具列表兼容，启用后可选择精简模式。
+
 ## 2026-09-13 — Xiaohongshu hidden-link fix / 小红书隐藏链接修复
 
 小红书在可见封面前放了一条隐藏、无 `xsec_token` 的帖子链接。原来的逗号选择器按 DOM 顺序命中了它，导致 `social_read` 在进入详情前报 `scrollIntoViewIfNeeded` 5 秒超时；列表也可能丢失签名参数和封面图。

@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import { createSocialReader } from "../src/social-read.mjs";
+import { createTaskController } from "../src/task-controller.mjs";
 
 // Exercise the real watch scheduler without connecting to a user's browser.
 const source = await readFile(new URL("../src/control-server.mjs", import.meta.url), "utf8");
@@ -42,7 +43,7 @@ let text = "Original article";
 let skipped = false;
 const captures = [];
 const scope = vm.createContext({
-  Date: Clock, URL, createHash, console, createSocialReader,
+  Date: Clock, URL, createHash, console, createSocialReader, createTaskController,
   process: { env: {} },
   chromium: { connectOverCDP: async () => browser },
   activePage: () => activePage,

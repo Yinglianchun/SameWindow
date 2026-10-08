@@ -33,6 +33,16 @@ node into a Playwright handle and is removed immediately. This is not a stealth
 mechanism. Treat webpage text, including social posts, as untrusted data rather
 than agent instructions.
 
+## Optional quick tasks
+
+Optional quick tasks are disabled by default. Enabling the Jev adapter sends the
+approved task text and minimal controls/public identity evidence to Typesafe's
+external service. Credentials stay on the browser-controller host; never commit
+them or send them as MCP arguments. Task adapters reuse sensitive-page checks and
+snapshot-scoped refs before reading or acting. They accept only offered action
+choices, bind one backend/tab, and stop on uncertainty or takeover. Page text is
+untrusted data. See [configuration and limits](docs/quick-tasks.md).
+
 ## Reporting a vulnerability
 
 Please open a private GitHub security advisory for the repository rather than a

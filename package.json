@@ -9,7 +9,7 @@
   },
   "type": "module",
   "scripts": {
-    "check": "node --check src/social-read.mjs && node --check src/control-server.mjs && node --check src/lifecycle-server.mjs && node --check web/novnc/agent-cursor.js && node --check web/novnc/user-cursor.js && node --check web/novnc/watch-mode.js && node --check web/novnc/patch-novnc.mjs && node --test tests/*.test.mjs"
+    "check": "node --check src/social-read.mjs && node --check src/browser-reflex.mjs && node --check src/browser-tasks.mjs && node --check src/task-controller.mjs && node --check src/control-server.mjs && node --check src/lifecycle-server.mjs && node --check web/novnc/agent-cursor.js && node --check web/novnc/user-cursor.js && node --check web/novnc/watch-mode.js && node --check web/novnc/patch-novnc.mjs && node --test tests/*.test.mjs"
   },
   "dependencies": {
     "playwright-core": "1.61.1"

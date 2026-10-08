@@ -1,5 +1,10 @@
 # SameWindow：不是让 AI 替你上网，是把网页放到你们之间
 
+可选的 [快速浏览任务](docs/quick-tasks.md)：一次交给 `shared_browser_task` 搜索词或准确昵称，
+让 Jev 连续选择有限的 X 导航动作，到达后由浏览器返回真实页面和耗时。
+默认关闭，原有 14 个工具保持兼容；显式启用后可选择 15 个工具或 8 个工具的精简模式。
+分体部署时，密钥配置在浏览器那台机器，工具开关配置在 MCP 那台机器。
+
 [![许可](https://img.shields.io/badge/license-NC--SA%201.0-6d5f74)](LICENSE)
 ![平台](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4f6d7a)
 ![部署](https://img.shields.io/badge/deployment-self--hosted-52796f)

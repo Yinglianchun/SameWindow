@@ -80,7 +80,7 @@ test("rejects a traversal-style argv escaping the allowed root", async () => {
     await buildFixture(escape);
     // "<allowedRoot>/../<escapeDirName>/vnc.html" normalizes (via path.resolve)
     // to a real path outside the allowed root.
-    const escapeName = escape.split("/").pop();
+    const escapeName = escape.split(/[\\/]/).pop();
     const traversalArg = join(directory, "..", escapeName, "vnc.html");
     assert.throws(
       () => runPatch(traversalArg, [directory]),

@@ -45,6 +45,20 @@ def snapshot(local: str, vps: str):
 
 
 class SplitRouterTest(unittest.TestCase):
+    def test_task_uses_long_timeout_and_keeps_backend_refs(self) -> None:
+        with (
+            mock.patch.object(samewindow, "_targets", return_value=[LOCAL, VPS]),
+            mock.patch.object(samewindow, "_snapshot", return_value=snapshot("running", "stopped")),
+            mock.patch.object(samewindow, "_json_request", return_value={
+                "ok": True, "task": {"snapshot": {"tabRef": "tab-1", "elements": [{"ref": "s5:e1"}]}}
+            }) as request,
+        ):
+            result = samewindow.shared_browser_task("x_search", "rain", "local:tab-1")
+        self.assertEqual(request.call_args.kwargs["timeout"], 65)
+        self.assertEqual(request.call_args.kwargs["payload"]["tabRef"], "tab-1")
+        self.assertEqual(result["task"]["snapshot"]["elements"][0]["ref"], "local:s5:e1")
+        samewindow._clear_backend_lease()
+
     def setUp(self) -> None:
         samewindow._clear_backend_lease()
 
